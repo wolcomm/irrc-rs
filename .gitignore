@@ -1,0 +1,6 @@
+/target
+Cargo.lock
+.coverage/
+*.profraw
+flamegraph.svg
+perf.data*

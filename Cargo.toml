@@ -1,0 +1,22 @@
+[package]
+name = "irrc"
+version = "0.1.0-alpha.1"
+edition = "2018"
+authors = ["Ben Maddison <benm@workonline.africa>"]
+description = "A client library for the IRRd query protocol"
+license = "MIT"
+repository = "https://github.com/wolcomm/irrc-rs"
+readme = "README.md"
+keywords = ["irr", "rpsl", "as-set", "route", "bgp", "networking", "ip"]
+categories = ["network-programming", "database"]
+
+[dependencies]
+circular = "^0.3"
+log = "^0.4"
+nom = {version = "^6.2", features = ["regexp"]}
+
+[dev-dependencies]
+version-sync = "^0.9"
+simple_logger = {version = "^1.13", features = ["stderr"]}
+paste = "^1.0"
+prefixset = "0.1.0-rc.1"
