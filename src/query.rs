@@ -45,7 +45,7 @@ impl Query {
             }
             Self::Ipv4Routes(q) => format!("!g{}\n", q),
             Self::Ipv6Routes(q) => format!("!6{}\n", q),
-            Self::RpslObject(class, q) => format!("!m{},{}\n", class.class_name(), q),
+            Self::RpslObject(class, q) => format!("!m{},{}\n", class, q),
             Self::MntBy(q) => format!("!o{}\n", q),
             Self::Origins(q) => format!("!r{},o\n", q),
             Self::RoutesExact(q) => format!("!r{}\n", q),
@@ -103,39 +103,33 @@ impl IntoIterator for Query {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, strum::Display)]
+#[cfg_attr(test, derive(strum::EnumIter))]
 pub enum RpslObjectClass {
+    #[strum(to_string = "mntner")]
     Mntner,
+    #[strum(to_string = "person")]
     Person,
+    #[strum(to_string = "role")]
     Role,
+    #[strum(to_string = "route")]
     Route,
+    #[strum(to_string = "route6")]
     Route6,
+    #[strum(to_string = "aut-num")]
     AutNum,
+    #[strum(to_string = "inet-rtr")]
     InetRtr,
+    #[strum(to_string = "as-set")]
     AsSet,
+    #[strum(to_string = "route-set")]
     RouteSet,
+    #[strum(to_string = "filter-set")]
     FilterSet,
+    #[strum(to_string = "rtr-set")]
     RtrSet,
+    #[strum(to_string = "peering-set")]
     PeeringSet,
-}
-
-impl RpslObjectClass {
-    fn class_name(&self) -> &str {
-        match self {
-            Self::Mntner => "mntner",
-            Self::Person => "person",
-            Self::Role => "role",
-            Self::Route => "route",
-            Self::Route6 => "route6",
-            Self::AutNum => "aut-num",
-            Self::InetRtr => "inet-rtr",
-            Self::AsSet => "as-set",
-            Self::RouteSet => "route-set",
-            Self::FilterSet => "filter-set",
-            Self::RtrSet => "rtr-set",
-            Self::PeeringSet => "peering-set",
-        }
-    }
 }
 
 #[cfg(test)]
@@ -148,5 +142,69 @@ mod tests {
         let mut iter = q.clone().into_iter();
         assert_eq!(iter.next(), Some(q));
         assert_eq!(iter.next(), None);
+    }
+
+    mod proptests {
+        use proptest::{prelude::*, strategy::Union};
+        use strum::IntoEnumIterator;
+
+        use super::*;
+
+        impl Arbitrary for RpslObjectClass {
+            type Parameters = ();
+            type Strategy = Union<Just<Self>>;
+            fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+                Union::new(Self::iter().map(Just))
+            }
+        }
+
+        impl Arbitrary for Query {
+            type Parameters = ();
+            type Strategy = BoxedStrategy<Self>;
+
+            fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+                prop_oneof![
+                    Just(Self::Version),
+                    any::<String>().prop_map(Self::SetClientId),
+                    any::<Duration>().prop_map(Self::SetTimeout),
+                    Just(Self::GetSources),
+                    any::<Vec<String>>().prop_map(Self::SetSources),
+                    Just(Self::UnsetSources),
+                    any::<String>().prop_map(Self::AsSetMembers),
+                    any::<String>().prop_map(Self::AsSetMembersRecursive),
+                    any::<String>().prop_map(Self::RouteSetMembers),
+                    any::<String>().prop_map(Self::RouteSetMembersRecursive),
+                    any::<String>().prop_map(Self::Ipv4Routes),
+                    any::<String>().prop_map(Self::Ipv6Routes),
+                    any::<(RpslObjectClass, String)>()
+                        .prop_map(|(class, object)| Self::RpslObject(class, object)),
+                    any::<String>().prop_map(Self::MntBy),
+                    any::<String>().prop_map(Self::Origins),
+                    any::<String>().prop_map(Self::RoutesExact),
+                    any::<String>().prop_map(Self::RoutesLess),
+                    any::<String>().prop_map(Self::RoutesLessEqual),
+                    any::<String>().prop_map(Self::RoutesMore),
+                ]
+                .boxed()
+            }
+        }
+
+        proptest! {
+            #[test]
+            fn cmd_begins_with_bang(q in any::<Query>()) {
+                assert!(q.cmd().starts_with('!'));
+            }
+
+            #[test]
+            fn cmd_ends_with_newline(q in any::<Query>()) {
+                assert!(q.cmd().ends_with('\n'));
+            }
+
+            #[test]
+            #[allow(unused_must_use)]
+            fn parse_item_never_panics(q in any::<Query>(), input in any::<Vec<u8>>()) {
+                q.parse_item(&input);
+            }
+        }
     }
 }

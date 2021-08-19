@@ -97,25 +97,42 @@ pub fn noop(input: &[u8]) -> IResult<&[u8], (usize, &[u8])> {
     Ok((input, (0, &[])))
 }
 
-pub fn paragraph(_: &[u8]) -> IResult<&[u8], (usize, &[u8])> {
-    unimplemented!()
+// TODO
+pub fn paragraph(input: &[u8]) -> IResult<&[u8], (usize, &[u8])> {
+    map(
+        consumed(take_until("\n\n")),
+        |(consumed, paragraph): (&[u8], &[u8])| (consumed.len(), paragraph),
+    )(input)
 }
 
 #[cfg(test)]
 mod tests {
     use nom::Finish;
     use paste::paste;
+    use proptest::prelude::*;
 
     use super::*;
 
-    macro_rules! assert_incomplete {
-        ( $( $desc:ident: $input:literal ),* $(,)? ) => {
+    macro_rules! does_not_panic {
+        ( $fn:ident ) => {
+            proptest! {
+                #[test]
+                #[allow(unused_must_use)]
+                fn does_not_panic(input in any::<Vec<u8>>()) {
+                    $fn(&input);
+                }
+            }
+        };
+    }
+
+    macro_rules! assert_incomplete_parse {
+        ( $fn:ident { $( $desc:ident: $input:literal ),* $(,)? } ) => {
             paste! {
                 $(
                     #[test]
                     fn [<$desc _is_incomplete>]() {
                         let input = dbg!($input);
-                        assert!(response_status(input).unwrap_err().is_incomplete())
+                        assert!($fn(input).unwrap_err().is_incomplete())
                     }
                 )*
             }
@@ -123,15 +140,30 @@ mod tests {
     }
 
     macro_rules! assert_error_kind {
-        ( $( $desc:ident: $input:literal => $kind:ident ),* $(,)? ) => {
+        ( $fn:ident { $( $desc:ident: $input:literal => $kind:ident ),* $(,)? } ) => {
             paste! {
                 $(
                     #[test]
-                    #[allow(non_snake_case)]
-                    fn [<$desc _is_ $kind _error>]() {
+                    fn [<$desc _is_ $kind:snake _error>]() {
                         let input = dbg!($input);
-                        let err = response_status(input).finish().unwrap_err();
+                        let err = $fn(input).finish().unwrap_err();
                         assert_eq!(err.code, nom::error::ErrorKind::$kind)
+                    }
+                )*
+            }
+        }
+    }
+
+    macro_rules! assert_parse_result {
+        ( $fn:ident { $( $desc:ident: $input:literal => ( $consumed:literal, $result:expr ) ),* $(,)? } ) => {
+            paste! {
+                $(
+                    #[test]
+                    fn [<$desc _is_valid_result>]() {
+                        let input = dbg!($input);
+                        let (_, (consumed, result)) = $fn(input).unwrap();
+                        assert_eq!(consumed, $consumed);
+                        assert_eq!(result, $result);
                     }
                 )*
             }
@@ -141,23 +173,9 @@ mod tests {
     mod status {
         use super::*;
 
-        macro_rules! assert_response_result {
-            ( $( $desc:ident: $input:literal => $result:expr ),* $(,)? ) => {
-                paste! {
-                    $(
-                        #[test]
-                        fn [<$desc _is_valid_result>]() {
-                            let input = dbg!($input);
-                            let (_, (consumed, result)) = response_status(input).unwrap();
-                            assert_eq!(input.len(), consumed);
-                            assert_eq!(result, $result);
-                        }
-                    )*
-                }
-            }
-        }
+        does_not_panic!(response_status);
 
-        assert_incomplete!(
+        assert_incomplete_parse!(response_status {
             empty: b"",
             unterminated_ok_none: b"C",
             unterminated_err_not_found: b"D",
@@ -166,26 +184,136 @@ mod tests {
             unterminated_ok_data: b"A1",
             err_other_no_msg: b"F",
             unterminated_err_other: b"F foo",
-        );
+        });
 
         assert_error_kind!(
-            null: b"\n" => Char,
-            unknown_status: b"Z" => Char,
-            missing_length: b"A\n" => Char,
-            invalid_length: b"Afoo" => Char,
-            unexpected_length: b"C1" => Char,
-            missing_err_msg: b"F\n" => Char,
-            missing_err_msg_delimiter: b"Fmsg" => Char,
-            non_utf8_err_msg: b"F \xc0\n" => MapRes,
+            response_status {
+                null: b"\n" => Char,
+                unknown_status: b"Z" => Char,
+                missing_length: b"A\n" => Char,
+                invalid_length: b"Afoo" => Char,
+                unexpected_length: b"C1" => Char,
+                missing_err_msg: b"F\n" => Char,
+                missing_err_msg_delimiter: b"Fmsg" => Char,
+                non_utf8_err_msg: b"F \xc0\n" => MapRes,
+            }
         );
 
-        assert_response_result!(
-            ok_data_nil_length: b"A0\n" => Ok(Some(0)),
-            ok_data_with_length: b"A101\n" => Ok(Some(101)),
-            ok_none: b"C\n" => Ok(None),
-            err_not_found: b"D\n" => Err(ResponseError::KeyNotFound),
-            err_not_unique: b"E\n" => Err(ResponseError::KeyNotUnique),
-            err_other: b"F foo\n" => Err(ResponseError::Other("foo".to_string())),
+        assert_parse_result!(
+            response_status {
+                ok_data_nil_length: b"A0\n" => (3, Ok(Some(0))),
+                ok_data_with_length: b"A101\n" => (5, Ok(Some(101))),
+                ok_none: b"C\n" => (2, Ok(None)),
+                err_not_found: b"D\n" => (2, Err(ResponseError::KeyNotFound)),
+                err_not_unique: b"E\n" => (2, Err(ResponseError::KeyNotUnique)),
+                err_other: b"F foo\n" => (6, Err(ResponseError::Other("foo".to_string()))),
+            }
         );
+    }
+
+    mod end_of_response {
+        use super::*;
+
+        does_not_panic!(end_of_response);
+
+        assert_incomplete_parse!(end_of_response {
+            empty: b"",
+            partial: b"\nC",
+        });
+
+        assert_error_kind!(
+            end_of_response {
+                missing_newline: b"C" => Tag,
+                missing_char: b"\n\n" => Tag,
+            }
+        );
+
+        #[test]
+        fn eor() {
+            assert_eq!(end_of_response(EOR), Ok((b"" as &[u8], 3)))
+        }
+
+        proptest! {
+            #[test]
+            fn parses_with_arbitary_trailing_input(
+                input in proptest::string::bytes_regex("\nC\n.*").unwrap(),
+            ) {
+                assert_eq!(end_of_response(&input), Ok((&input[3..], 3)))
+            }
+
+            #[test]
+            fn fails_with_arbitary_leading_input(
+                input in proptest::string::bytes_regex("[^\n].*").unwrap()
+            ) {
+                assert_eq!(
+                    end_of_response(&input).finish().unwrap_err().code,
+                    nom::error::ErrorKind::Tag,
+                )
+            }
+        }
+    }
+
+    mod word {
+        use super::*;
+
+        does_not_panic!(word);
+
+        assert_incomplete_parse!(word {
+            empty: b"",
+            unterminated: b"foo",
+        });
+
+        assert_error_kind!(
+            word {
+                leading_space: b" foo" => TakeTill1,
+                leading_newline: b"\nfoo" => TakeTill1,
+            }
+        );
+
+        assert_parse_result!(
+            word {
+                trailing_space: b"foo bar" => (4, b"foo"),
+                trailing_newline: b"foo\n" => (3, b"foo"),
+            }
+        );
+    }
+
+    mod paragraph {
+        use super::*;
+
+        does_not_panic!(paragraph);
+
+        assert_incomplete_parse!(all {
+            empty: b"",
+            unterminated: b"foo",
+        });
+    }
+
+    mod all {
+        use super::*;
+
+        does_not_panic!(all);
+
+        assert_incomplete_parse!(all {
+            empty: b"",
+            unterminated: b"foo",
+        });
+
+        assert_parse_result!(
+            all {
+                terminated: b"foo bar baz\nC\n" => (11, b"foo bar baz"),
+            }
+        );
+    }
+
+    mod noop {
+        use super::*;
+
+        does_not_panic!(noop);
+
+        assert_parse_result!(noop {
+            empty: b"" => (0, b""),
+            terminated: b"foo bar baz\nC\n" => (0, b""),
+        });
     }
 }
