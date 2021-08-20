@@ -10,6 +10,10 @@ use crate::{
     query::{Query, QueryResult},
 };
 
+/// A sequence of queries to be executed sequentially using pipelining.
+///
+/// See [`Connection::pipeline()`] for details.
+///
 #[derive(Debug)]
 pub struct Pipeline<'a> {
     conn: &'a mut Connection,
@@ -52,6 +56,26 @@ impl<'a> Pipeline<'a> {
         Ok(pipeline)
     }
 
+    /// Add a query to be executed in order using this [`Pipeline`].
+    ///
+    /// This method will block until the query is written to the underlying
+    /// TCP socket.
+    ///
+    /// # Example
+    ///
+    /// ``` no_run
+    /// # use irrc::{IrrClient, QueryResult};
+    /// # fn main() -> QueryResult<()> {
+    /// # let mut conn = IrrClient::new("whois.radb.net:43").connect()?;
+    /// use irrc::Query;
+    ///
+    /// let mut pipeline = conn.pipeline();
+    /// let query = Query::Ipv6Routes("AS65000".to_string());
+    /// pipeline.push(query)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
     pub fn push(&mut self, query: Query) -> io::Result<&mut Self> {
         self.conn.send(&query.cmd())?;
         self.queue.push_back(query);
@@ -63,6 +87,29 @@ impl<'a> Pipeline<'a> {
         Ok(())
     }
 
+    /// Get the next query response from this [`Pipeline`].
+    ///
+    /// This method will block until enough data has been read from the underlying
+    /// TCP socket to determine the response status and length.
+    ///
+    /// The [`Response`] contained in the returned result provides methods for
+    /// reading any data returned by the server.
+    ///
+    /// # Example
+    ///
+    /// ``` no_run
+    /// # use irrc::{IrrClient, Query, QueryResult};
+    /// # fn main() -> QueryResult<()> {
+    /// # let mut conn = IrrClient::new("whois.radb.net:43").connect()?;
+    /// let mut pipeline = conn.pipeline();
+    /// pipeline.push(Query::Version)?;
+    ///
+    /// assert!(pipeline.pop().is_some());
+    /// assert!(pipeline.pop().is_none());
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
     pub fn pop<'b>(&'b mut self) -> Option<QueryResult<Response<'a, 'b>>> {
         self.pop_wrapped()
             .map(|wrapped| wrapped.map_err(|err| err.take_inner()))
@@ -110,6 +157,31 @@ impl<'a> Pipeline<'a> {
         })
     }
 
+    /// Get an iterator over the [`ResponseItem`]s returned by the server for
+    /// each outstanding query issued, in order.
+    ///
+    /// Error responses received from the server will be logged at the `WARNING`
+    /// level and then skipped. If some other error handling is required, use
+    /// [`pop()`][Self::pop] instead.
+    ///
+    /// # Example
+    ///
+    /// ``` no_run
+    /// # use irrc::{IrrClient, Query, QueryResult};
+    /// # fn main() -> QueryResult<()> {
+    /// let autnum = "AS65000".to_string();
+    /// IrrClient::new("whois.radb.net:43")
+    ///     .connect()?
+    ///     .pipeline()
+    ///     .push(Query::Ipv4Routes(autnum.clone()))?
+    ///     .push(Query::Ipv6Routes(autnum.clone()))?
+    ///     .responses()
+    ///     .filter_map(Result::ok)
+    ///     .for_each(|route| println!("{:?}", route));
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
     pub fn responses<'b>(&'b mut self) -> Responses<'a, 'b>
     where
         'a: 'b,
@@ -129,9 +201,50 @@ impl<'a> Pipeline<'a> {
         Ok(self.buf.fill(fetched))
     }
 
-    pub fn clear(&mut self) -> &mut Connection {
+    /// Clear an existing [`Pipeline`] by consuming and discarding
+    /// any unread responses from the server.
+    ///
+    /// Because query responses are transmitted by the server serially, the
+    /// client relies on the known ordering of queries in order to match
+    /// query to response. Therefore any un consumed responses must be read
+    /// and dropped before the [`Pipeline`] can be reused for a new sequence
+    /// of queries.
+    ///
+    /// # [`Drop`]
+    ///
+    /// The [`Drop`] implementation for [`Pipeline`] will perform the necessary
+    /// cleanup of the receive buffer, so that the underlying [`Connection`] can
+    /// be re-used.
+    ///
+    /// Calling [`clear()`][Pipeline::clear] is only necessary if the
+    /// [`Pipeline`] (rather than the underlying [`Connection`]) will be
+    /// re-used.
+    ///
+    /// # Example
+    ///
+    /// ``` no_run
+    /// # use irrc::{IrrClient, Query, QueryResult};
+    /// # fn main() -> QueryResult<()> {
+    /// let mut irr = IrrClient::new("whois.radb.net:43")
+    ///     .connect()?;
+    /// let mut pipeline = irr.pipeline();
+    /// if let Some(autnum) = pipeline
+    ///     .push(Query::Origins("192.0.2.0/24".to_string()))?
+    ///     .responses()
+    ///     .filter_map(Result::ok)
+    ///     .next()
+    /// {
+    ///     println!("only care the first origin: {}", autnum.content());
+    /// }
+    /// pipeline.clear();
+    /// // do more work with `pipeline`...
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    pub fn clear(&mut self) -> &mut Self {
         self.responses().consume();
-        self.conn
+        self
     }
 }
 
@@ -154,6 +267,10 @@ impl Extend<Query> for Pipeline<'_> {
     }
 }
 
+/// Iterator returned by [`responses()`][Pipeline::responses] method.
+///
+/// See [`Pipeline::responses`] for details.
+///
 #[derive(Debug)]
 pub struct Responses<'a, 'b>
 where
@@ -164,7 +281,7 @@ where
 }
 
 impl Responses<'_, '_> {
-    pub fn consume(&mut self) {
+    fn consume(&mut self) {
         for item in self {
             log::debug!("consuming unused response item {:?}", item);
         }
@@ -207,6 +324,11 @@ where
     }
 }
 
+/// A successful query response.
+///
+/// If the query returned data, this can be accessed by iteration over [`Response`].
+///
+/// Constructed by [`Pipeline::pop()`]. See the method documentation for details.
 #[derive(Debug)]
 pub struct Response<'a, 'b>
 where
@@ -231,6 +353,7 @@ where
         }
     }
 
+    /// The [`Query`] which this was a response to.
     pub fn query(&self) -> &Query {
         &self.query
     }
@@ -283,7 +406,7 @@ where
         }
     }
 
-    pub fn consume(&mut self) {
+    fn consume(&mut self) {
         for item in self {
             log::debug!("consuming unused response item {:?}", item);
         }
@@ -312,14 +435,21 @@ enum ItemOrYield<'a, 'b> {
     Yield(&'b mut Pipeline<'a>),
 }
 
+/// An individual data element contained within the query response.
+///
+/// The nature of each element is dependent on the corresponding [`Query`]
+/// variant.
+///
 #[derive(Debug)]
 pub struct ResponseItem(String, Query);
 
 impl ResponseItem {
+    /// The content of the [`ResponseItem`].
     pub fn content(&self) -> &str {
         &self.0
     }
 
+    /// The [`Query`] which this element was provided in response to.
     pub fn query(&self) -> &Query {
         &self.1
     }

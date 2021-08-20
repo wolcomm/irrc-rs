@@ -7,26 +7,68 @@ use crate::{error::QueryError, parse};
 /// Alias for [`Result<T, error::QueryError>`].
 pub type QueryResult<T> = Result<T, QueryError>;
 
+/// IRRd query variants.
+// TODO: !a, !j, maybe !J
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Query {
+    /// Returns the current version of the server.
     Version,
+    /// Identifies the client to the server.
+    ///
+    /// This should usually be used via
+    /// [`client_id()`][crate::IrrClient::client_id], rather than being issued
+    /// directly.
+    ///
     SetClientId(String),
+    /// Sets the server-side timeout of the connection.
+    ///
+    /// This should usually be used via
+    /// [`server_timeout()`][crate::IrrClient::server_timeout],
+    /// rather than being issued directly.
+    ///
     SetTimeout(Duration),
+    /// Returns the list of sources currently selected for query resolution.
     GetSources,
+    /// Sets the list of sources to be used for subsequent query resolution.
     SetSources(Vec<String>),
+    /// Re-sets the list of sources to all those available on the server.
     UnsetSources,
+    /// Returns all (direct) members of an `as-set`.
     AsSetMembers(String),
+    /// Returns all members of an `as-set`, recursively expanding `as-set`
+    /// members as necessary.
     AsSetMembersRecursive(String),
+    /// Returns all (direct) members of a `route-set`.
     RouteSetMembers(String),
+    /// Returns all members of an `route-set`, recursively expanding members
+    /// as necessary.
     RouteSetMembersRecursive(String),
+    /// Returns all IPv4 prefixes corresponding to a `route` object having
+    /// `origin:` set to the provided AS.
     Ipv4Routes(String),
+    /// Returns all IPv6 prefixes corresponding to a `route6` object having
+    /// `origin:` set to the provided AS.
     Ipv6Routes(String),
+    /// Returns an RPSL object exactly matching the provided key, of the
+    /// specified RPSL object class.
     RpslObject(RpslObjectClass, String),
+    /// Returns all RPSL objects with the specified maintainer in their
+    /// `mnt-by:` attribute.
     MntBy(String),
+    /// Returns the unique `origin:`s of `route` or `route6` objects exactly
+    /// matching the provided prefix.
     Origins(String),
+    /// Returns all RPSL `route` or `route6` objects exactly matching the
+    /// provided prefix.
     RoutesExact(String),
+    /// Returns all RPSL `route` or `route6` objects one level less-specific
+    /// (excluding exeact matches) than the provided prefix.
     RoutesLess(String),
+    /// Returns all RPSL `route` or `route6` objects one level less-specific
+    /// (including exeact matches) than the provided prefix.
     RoutesLessEqual(String),
+    /// Returns all RPSL `route` or `route6` objects one level more-specific
+    /// (excluding exeact matches) than the provided prefix.
     RoutesMore(String),
 }
 

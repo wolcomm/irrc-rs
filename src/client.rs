@@ -14,7 +14,7 @@ use crate::{
 ///
 /// # Example
 ///
-/// ``` rust
+/// ``` no_run
 /// use irrc::{IrrClient, QueryResult};
 ///
 /// fn main() -> QueryResult<()> {
@@ -43,6 +43,24 @@ where
     pub const DEFAULT_CLIENT_ID: &'static str =
         concat!(env!("CARGO_PKG_NAME"), "-", env!("CARGO_PKG_VERSION"));
 
+    /// Initialize a new [`IrrClient`].
+    ///
+    /// The connection is established by calling [`connect()`][Self::connect()]
+    /// on the returned object.
+    ///
+    /// # Example
+    ///
+    /// ``` no_run
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use irrc::IrrClient;
+    ///
+    /// if let Ok(conn) = IrrClient::new("whois.radb.net:43").connect() {
+    ///     println!("connected!");
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
     pub fn new(addr: A) -> Self {
         Self {
             addr,
@@ -51,10 +69,18 @@ where
         }
     }
 
+    /// Set a client identification string to send to the server upon connection.
+    ///
+    /// Default if not set is [`DEFAULT_CLIENT_ID`][Self::DEFAULT_CLIENT_ID].
+    ///
     pub fn client_id<S: AsRef<str>>(&mut self, id: Option<S>) {
         self.client_id = id.map(|id| id.as_ref().to_string())
     }
 
+    /// Set a non-default server-side timeout.
+    ///
+    /// The default if not set is server configuration dependent.
+    ///
     pub fn server_timeout(&mut self, duration: Option<Duration>) {
         self.server_timeout = duration
     }
@@ -73,6 +99,12 @@ where
 }
 
 /// A connection to an [IRRd] server.
+///
+/// Constructed by [`connect()`][IrrClient::connect()]. See the method
+/// documentation for details.
+///
+/// [IRRd]: https://irrd.readthedocs.io/en/stable/
+///
 #[derive(Debug)]
 pub struct Connection {
     conn: TcpStream,
@@ -119,6 +151,25 @@ impl Connection {
         self.pipeline_with_capacity(Self::DEFAULT_CAPACITY)
     }
 
+    /// Create a new pipeline, passing an initial [`Query`] and a closure
+    /// that creates additional queries from the response data of the first.
+    ///
+    /// Rust's ownership rules prevent new [`Query`]s being
+    /// [`push()`][Pipeline::push]ed whilst the response of another is still
+    /// being read from the TCP socket. As as result, using only
+    /// [`push()`][Pipeline::push] and [`pop()`][Pipeline::pop], it is not
+    /// possible to enqueue follow-up queries until the initial query response
+    /// has been fully consumed.
+    ///
+    /// This method saves substantial end-to-end query latency be enqueing
+    /// follow up queries as soon as the [`ResponseItem`] they are constructed
+    /// from has been read.
+    ///
+    /// It also avoids the necessity to `collect()` the initial `ResponseItem`s
+    /// into a temporary data structure, saving allocations.
+    ///
+    /// See `examples/pipelined.rs` for example usage.
+    ///
     pub fn pipeline_from_initial<F, I>(&mut self, initial: Query, f: F) -> QueryResult<Pipeline>
     where
         F: Fn(QueryResult<ResponseItem>) -> Option<I>,
@@ -132,8 +183,7 @@ impl Connection {
         Pipeline::new(self, capacity)
     }
 
-    // FIXME
-    /// Get the servers version identification `String`.
+    /// Get the server's version identification string.
     pub fn version(&mut self) -> QueryResult<String> {
         Ok(self
             .pipeline()
@@ -146,6 +196,8 @@ impl Connection {
             .to_owned())
     }
 
+    /// Convenience function to execute a [`Query::AsSetMembers`] query in a
+    /// new [`Pipeline`].
     pub fn as_set_members(&mut self, s: &str) -> QueryResult<Vec<ResponseItem>> {
         self.pipeline()
             .push(Query::AsSetMembers(s.to_owned()))?
@@ -154,6 +206,8 @@ impl Connection {
             .collect()
     }
 
+    /// Convenience function to execute a [`Query::Ipv4Routes`] query in a
+    /// new [`Pipeline`].
     pub fn ipv4_routes(&mut self, s: &str) -> QueryResult<Vec<ResponseItem>> {
         self.pipeline()
             .push(Query::Ipv4Routes(s.to_owned()))?
@@ -162,6 +216,8 @@ impl Connection {
             .collect()
     }
 
+    /// Convenience function to execute a [`Query::Ipv6Routes`] query in a
+    /// new [`Pipeline`].
     pub fn ipv6_routes(&mut self, s: &str) -> QueryResult<Vec<ResponseItem>> {
         self.pipeline()
             .push(Query::Ipv6Routes(s.to_owned()))?

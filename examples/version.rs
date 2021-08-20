@@ -1,18 +1,19 @@
 use simple_logger::SimpleLogger;
 
-use irrc::{IrrClient, Query, QueryResult};
+use irrc::{IrrClient, QueryResult};
 
 fn main() -> QueryResult<()> {
-    SimpleLogger::new().init().unwrap();
+    SimpleLogger::new()
+        .with_level(log::LevelFilter::Warn)
+        .init()
+        .unwrap();
+    let (host, port) = ("whois.radb.net", 43);
     println!(
-        "{:?}",
-        IrrClient::new("whois.radb.net:43")
+        "connected to '{}', running '{}'",
+        host,
+        IrrClient::new(format!("{}:{}", host, port))
             .connect()?
-            .pipeline()
-            .push(Query::Version)?
-            .pop()
-            .unwrap()?
-            .next()
+            .version()?
     );
     Ok(())
 }
