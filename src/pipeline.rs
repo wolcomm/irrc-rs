@@ -1,5 +1,9 @@
 use std::collections::VecDeque;
+use std::error::Error;
+use std::fmt;
 use std::io;
+use std::marker::PhantomData;
+use std::str::FromStr;
 
 use circular::Buffer;
 
@@ -13,7 +17,6 @@ use crate::{
 /// A sequence of queries to be executed sequentially using pipelining.
 ///
 /// See [`Connection::pipeline()`] for details.
-///
 #[derive(Debug)]
 pub struct Pipeline<'a> {
     conn: &'a mut Connection,
@@ -28,14 +31,16 @@ impl<'a> Pipeline<'a> {
         Self { conn, buf, queue }
     }
 
-    pub(crate) fn from_initial<'b, F, I>(
+    pub(crate) fn from_initial<'b, T, F, I>(
         conn: &'a mut Connection,
         initial: Query,
         f: F,
     ) -> QueryResult<Self>
     where
         'a: 'b,
-        F: Fn(QueryResult<ResponseItem>) -> Option<I>,
+        T: FromStr + fmt::Debug,
+        T::Err: Error + Send + 'static,
+        F: Fn(QueryResult<ResponseItem<T>>) -> Option<I>,
         I: IntoIterator<Item = Query>,
     {
         let mut pipeline = conn.pipeline();
@@ -75,7 +80,6 @@ impl<'a> Pipeline<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    ///
     pub fn push(&mut self, query: Query) -> io::Result<&mut Self> {
         self.conn.send(&query.cmd())?;
         self.queue.push_back(query);
@@ -89,11 +93,16 @@ impl<'a> Pipeline<'a> {
 
     /// Get the next query response from this [`Pipeline`].
     ///
-    /// This method will block until enough data has been read from the underlying
-    /// TCP socket to determine the response status and length.
+    /// This method will block until enough data has been read from the
+    /// underlying TCP socket to determine the response status and length.
     ///
-    /// The [`Response`] contained in the returned result provides methods for
-    /// reading any data returned by the server.
+    /// The [`Response<T>`] contained in the returned result provides methods
+    /// for reading any data returned by the server, where `T` is a type
+    /// implementing [`FromStr`]. The data elements contained in the response
+    /// will be parsed into `T`s during iteration over [`Response<T>`].
+    ///
+    /// The compiler may need to be told which `T` to parse into in some cases,
+    /// as in the following example.
     ///
     /// # Example
     ///
@@ -104,20 +113,27 @@ impl<'a> Pipeline<'a> {
     /// let mut pipeline = conn.pipeline();
     /// pipeline.push(Query::Version)?;
     ///
-    /// assert!(pipeline.pop().is_some());
-    /// assert!(pipeline.pop().is_none());
+    /// assert!(pipeline.pop::<String>().is_some());
+    /// assert!(pipeline.pop::<String>().is_none());
     /// # Ok(())
     /// # }
     /// ```
-    ///
-    pub fn pop<'b>(&'b mut self) -> Option<QueryResult<Response<'a, 'b>>> {
+    pub fn pop<'b, T>(&'b mut self) -> Option<QueryResult<Response<'a, 'b, T>>>
+    where
+        T: FromStr + fmt::Debug,
+        T::Err: Error + Send + 'static,
+    {
         self.pop_wrapped()
             .map(|wrapped| wrapped.map_err(|err| err.take_inner()))
     }
 
-    fn pop_wrapped<'b>(&'b mut self) -> Option<Result<Response<'a, 'b>, WrappingQueryError<'a, 'b>>>
+    fn pop_wrapped<'b, T>(
+        &'b mut self,
+    ) -> Option<Result<Response<'a, 'b, T>, WrappingQueryError<'a, 'b>>>
     where
         'a: 'b,
+        T: FromStr + fmt::Debug,
+        T::Err: Error + Send + 'static,
     {
         self.queue.pop_front().map(move |query| {
             let expect = loop {
@@ -160,8 +176,16 @@ impl<'a> Pipeline<'a> {
     /// Get an iterator over the [`ResponseItem`]s returned by the server for
     /// each outstanding query issued, in order.
     ///
-    /// Error responses received from the server will be logged at the `WARNING`
-    /// level and then skipped. If some other error handling is required, use
+    /// A single type `T: FromStr` will be used to parse every data element
+    /// from every query.
+    ///
+    /// If the compiler cannot determine the appropriate type, the turbo-fish
+    /// (`::<T>`) syntax may be necessary.
+    ///
+    /// Error responses received from the server will be logged at the
+    /// `WARNING` level and then skipped.
+    ///
+    /// If some other error handling is required, use
     /// [`pop()`][Self::pop] instead.
     ///
     /// # Example
@@ -175,16 +199,17 @@ impl<'a> Pipeline<'a> {
     ///     .pipeline()
     ///     .push(Query::Ipv4Routes(autnum.clone()))?
     ///     .push(Query::Ipv6Routes(autnum.clone()))?
-    ///     .responses()
+    ///     .responses::<String>()
     ///     .filter_map(Result::ok)
     ///     .for_each(|route| println!("{:?}", route));
     /// # Ok(())
     /// # }
     /// ```
-    ///
-    pub fn responses<'b>(&'b mut self) -> Responses<'a, 'b>
+    pub fn responses<'b, T>(&'b mut self) -> Responses<'a, 'b, T>
     where
         'a: 'b,
+        T: FromStr + fmt::Debug,
+        T::Err: Error + Send + 'static,
     {
         Responses {
             pipeline: Some(self),
@@ -230,7 +255,7 @@ impl<'a> Pipeline<'a> {
     /// let mut pipeline = irr.pipeline();
     /// if let Some(autnum) = pipeline
     ///     .push(Query::Origins("192.0.2.0/24".to_string()))?
-    ///     .responses()
+    ///     .responses::<String>()
     ///     .filter_map(Result::ok)
     ///     .next()
     /// {
@@ -241,9 +266,8 @@ impl<'a> Pipeline<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    ///
     pub fn clear(&mut self) -> &mut Self {
-        self.responses().consume();
+        self.responses::<String>().consume();
         self
     }
 }
@@ -270,17 +294,22 @@ impl Extend<Query> for Pipeline<'_> {
 /// Iterator returned by [`responses()`][Pipeline::responses] method.
 ///
 /// See [`Pipeline::responses`] for details.
-///
 #[derive(Debug)]
-pub struct Responses<'a, 'b>
+pub struct Responses<'a, 'b, T>
 where
     'a: 'b,
+    T: FromStr + fmt::Debug,
+    T::Err: Error + Send + 'static,
 {
     pipeline: Option<&'b mut Pipeline<'a>>,
-    current_reponse: Option<Response<'a, 'b>>,
+    current_reponse: Option<Response<'a, 'b, T>>,
 }
 
-impl Responses<'_, '_> {
+impl<T> Responses<'_, '_, T>
+where
+    T: FromStr + fmt::Debug,
+    T::Err: Error + Send + 'static,
+{
     fn consume(&mut self) {
         for item in self {
             log::debug!("consuming unused response item {:?}", item);
@@ -288,11 +317,13 @@ impl Responses<'_, '_> {
     }
 }
 
-impl<'a, 'b> Iterator for Responses<'a, 'b>
+impl<'a, 'b, T> Iterator for Responses<'a, 'b, T>
 where
     'a: 'b,
+    T: FromStr + fmt::Debug,
+    T::Err: Error + Send + 'static,
 {
-    type Item = QueryResult<ResponseItem>;
+    type Item = QueryResult<ResponseItem<T>>;
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if let Some(ref mut current) = self.current_reponse {
@@ -326,23 +357,30 @@ where
 
 /// A successful query response.
 ///
-/// If the query returned data, this can be accessed by iteration over [`Response`].
+/// If the query returned data, this can be accessed by iteration over
+/// [`Response<T>`].
 ///
-/// Constructed by [`Pipeline::pop()`]. See the method documentation for details.
+/// Constructed by [`Pipeline::pop()`]. See the method documentation for
+/// details.
 #[derive(Debug)]
-pub struct Response<'a, 'b>
+pub struct Response<'a, 'b, T>
 where
     'a: 'b,
+    T: FromStr + fmt::Debug,
+    T::Err: Error + Send + 'static,
 {
     query: Query,
     pipeline: Option<&'b mut Pipeline<'a>>,
     expect: usize,
     seen: usize,
+    content_type: PhantomData<T>,
 }
 
-impl<'a, 'b> Response<'a, 'b>
+impl<'a, 'b, T> Response<'a, 'b, T>
 where
     'a: 'b,
+    T: FromStr + fmt::Debug,
+    T::Err: Error + Send + 'static,
 {
     pub(crate) fn new(query: Query, pipeline: &'b mut Pipeline<'a>, expect: usize) -> Self {
         Self {
@@ -350,6 +388,7 @@ where
             pipeline: Some(pipeline),
             expect,
             seen: 0,
+            content_type: PhantomData,
         }
     }
 
@@ -358,7 +397,7 @@ where
         &self.query
     }
 
-    fn next_or_yield(&mut self) -> Option<ItemOrYield<'a, 'b>> {
+    fn next_or_yield(&mut self) -> Option<ItemOrYield<'a, 'b, T>> {
         if let Some(pipeline) = self.pipeline.take() {
             if self.query.expect_data() {
                 if self.expect == 0 {
@@ -413,14 +452,22 @@ where
     }
 }
 
-impl Drop for Response<'_, '_> {
+impl<T> Drop for Response<'_, '_, T>
+where
+    T: FromStr + fmt::Debug,
+    T::Err: Error + Send + 'static,
+{
     fn drop(&mut self) {
         self.consume();
     }
 }
 
-impl Iterator for Response<'_, '_> {
-    type Item = QueryResult<ResponseItem>;
+impl<T> Iterator for Response<'_, '_, T>
+where
+    T: FromStr + fmt::Debug,
+    T::Err: Error + Send + 'static,
+{
+    type Item = QueryResult<ResponseItem<T>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.next_or_yield() {
@@ -430,8 +477,12 @@ impl Iterator for Response<'_, '_> {
     }
 }
 
-enum ItemOrYield<'a, 'b> {
-    Item(QueryResult<ResponseItem>),
+enum ItemOrYield<'a, 'b, T>
+where
+    T: FromStr + fmt::Debug,
+    T::Err: Error + Send + 'static,
+{
+    Item(QueryResult<ResponseItem<T>>),
     Yield(&'b mut Pipeline<'a>),
 }
 
@@ -439,18 +490,64 @@ enum ItemOrYield<'a, 'b> {
 ///
 /// The nature of each element is dependent on the corresponding [`Query`]
 /// variant.
-///
 #[derive(Debug)]
-pub struct ResponseItem(String, Query);
+pub struct ResponseItem<T>(ResponseContent<T>, Query)
+where
+    T: FromStr + fmt::Debug,
+    T::Err: Error + Send + 'static;
 
-impl ResponseItem {
-    /// The content of the [`ResponseItem`].
-    pub fn content(&self) -> &str {
-        &self.0
+impl<T> ResponseItem<T>
+where
+    T: FromStr + fmt::Debug,
+    T::Err: Error + Send + 'static,
+{
+    /// Borrow the content of [`ResponseItem`].
+    pub fn content(&self) -> &T {
+        self.0.content()
+    }
+
+    /// Take ownership of the content of [`ResponseItem`].
+    pub fn into_content(self) -> T {
+        self.0.into_content()
     }
 
     /// The [`Query`] which this element was provided in response to.
     pub fn query(&self) -> &Query {
         &self.1
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct ResponseContent<T>(T)
+where
+    T: FromStr + fmt::Debug,
+    T::Err: Error + Send + 'static;
+
+impl<T> ResponseContent<T>
+where
+    T: FromStr + fmt::Debug,
+    T::Err: Error + Send + 'static,
+{
+    fn content(&self) -> &T {
+        &self.0
+    }
+
+    fn into_content(self) -> T {
+        self.0
+    }
+}
+
+impl<T> FromStr for ResponseContent<T>
+where
+    T: FromStr + fmt::Debug,
+    T::Err: Error + Send + 'static,
+{
+    type Err = QueryError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let inner = match s.parse() {
+            Ok(inner) => inner,
+            Err(err) => return Err(QueryError::ItemParse(Box::new(err))),
+        };
+        Ok(Self(inner))
     }
 }

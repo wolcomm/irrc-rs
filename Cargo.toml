@@ -13,12 +13,13 @@ categories = ["network-programming", "database"]
 [dependencies]
 circular = "^0.3"
 log = "^0.4"
-nom = "^6.2"
+nom = "^7.0"
 strum = {version = "^0.21", features = ["derive"]}
 
 [dev-dependencies]
-version-sync = "^0.9"
-simple_logger = {version = "^1.13", features = ["stderr"]}
+ipnet = "^2.3"
 paste = "^1.0"
-prefixset = "0.1.0-rc.1"
+prefixset = "0.1.0-rc.2"
 proptest = "^1.0"
+simple_logger = {version = "^1.13", features = ["stderr"]}
+version-sync = "^0.9"

@@ -1,8 +1,10 @@
+use std::error::Error;
+use std::fmt;
 use std::iter::{once, Once};
-use std::str::from_utf8;
+use std::str::{from_utf8, FromStr};
 use std::time::Duration;
 
-use crate::{error::QueryError, parse};
+use crate::{error::QueryError, parse, pipeline::ResponseContent};
 
 /// Alias for [`Result<T, error::QueryError>`].
 pub type QueryResult<T> = Result<T, QueryError>;
@@ -18,14 +20,12 @@ pub enum Query {
     /// This should usually be used via
     /// [`client_id()`][crate::IrrClient::client_id], rather than being issued
     /// directly.
-    ///
     SetClientId(String),
     /// Sets the server-side timeout of the connection.
     ///
     /// This should usually be used via
     /// [`server_timeout()`][crate::IrrClient::server_timeout],
     /// rather than being issued directly.
-    ///
     SetTimeout(Duration),
     /// Returns the list of sources currently selected for query resolution.
     GetSources,
@@ -118,22 +118,24 @@ impl Query {
         )
     }
 
-    pub(crate) fn parse_item(&self, input: &[u8]) -> QueryResult<(usize, String)> {
-        let parse_result = match self {
-            _ if !self.expect_data() => parse::noop(input),
-            Self::Version => parse::all(input),
+    pub(crate) fn parse_item<T>(&self, input: &[u8]) -> QueryResult<(usize, ResponseContent<T>)>
+    where
+        T: FromStr + fmt::Debug,
+        T::Err: Error + Send + 'static,
+    {
+        let (_, (consumed, item)) = match self {
+            _ if !self.expect_data() => parse::noop(input)?,
+            Self::Version => parse::all(input)?,
             Self::RpslObject(..)
             | Self::MntBy(_)
             | Self::RoutesExact(_)
             | Self::RoutesLess(_)
             | Self::RoutesLessEqual(_)
-            | Self::RoutesMore(_) => parse::paragraph(input),
-            _ => parse::word(input),
+            | Self::RoutesMore(_) => parse::paragraph(input)?,
+            _ => parse::word(input)?,
         };
-        match parse_result {
-            Ok((_, (consumed, item))) => Ok((consumed, from_utf8(item)?.to_owned())),
-            Err(err) => Err(err.into()),
-        }
+        let content = from_utf8(item)?.parse()?;
+        Ok((consumed, content))
     }
 }
 
@@ -245,7 +247,7 @@ mod tests {
             #[test]
             #[allow(unused_must_use)]
             fn parse_item_never_panics(q in any::<Query>(), input in any::<Vec<u8>>()) {
-                q.parse_item(&input);
+                q.parse_item::<String>(&input);
             }
         }
     }

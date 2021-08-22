@@ -1,4 +1,5 @@
-//! This crate provides an client implementation for the [IRRd query protocol][irrd].
+//! This crate provides an client implementation for the [IRRd query
+//! protocol][irrd].
 //!
 //! The implementation provides pipelined query execution for maximal
 //! performance over a single TCP connection.
@@ -19,7 +20,7 @@
 //!     println!("getting members of {}", as_set);
 //!     irr.pipeline()
 //!         .push(Query::AsSetMembersRecursive(as_set))?
-//!         .responses()
+//!         .responses::<String>()
 //!         .filter_map(|result| {
 //!             result.map_err(|err| {
 //!                 println!("error parsing member: {}", err);
@@ -34,7 +35,6 @@
 //! ```
 //!
 //! [irrd]: https://irrd.readthedocs.io/en/stable/users/queries/#irrd-style-queries
-//!
 #![doc(html_root_url = "https://docs.rs/irrc/0.1.0-alpha.1")]
 #![warn(missing_docs)]
 

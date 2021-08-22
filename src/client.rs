@@ -1,6 +1,8 @@
+use std::error::Error;
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, TcpStream, ToSocketAddrs};
+use std::str::FromStr;
 use std::time::Duration;
 
 use crate::{
@@ -26,7 +28,6 @@ use crate::{
 /// ```
 ///
 /// [IRRd]: https://irrd.readthedocs.io/en/stable/
-///
 #[derive(Debug)]
 pub struct IrrClient<A> {
     addr: A,
@@ -60,7 +61,6 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    ///
     pub fn new(addr: A) -> Self {
         Self {
             addr,
@@ -69,10 +69,10 @@ where
         }
     }
 
-    /// Set a client identification string to send to the server upon connection.
+    /// Set a client identification string to send to the server upon
+    /// connection.
     ///
     /// Default if not set is [`DEFAULT_CLIENT_ID`][Self::DEFAULT_CLIENT_ID].
-    ///
     pub fn client_id<S: AsRef<str>>(&mut self, id: Option<S>) {
         self.client_id = id.map(|id| id.as_ref().to_string())
     }
@@ -80,7 +80,6 @@ where
     /// Set a non-default server-side timeout.
     ///
     /// The default if not set is server configuration dependent.
-    ///
     pub fn server_timeout(&mut self, duration: Option<Duration>) {
         self.server_timeout = duration
     }
@@ -104,7 +103,6 @@ where
 /// documentation for details.
 ///
 /// [IRRd]: https://irrd.readthedocs.io/en/stable/
-///
 #[derive(Debug)]
 pub struct Connection {
     conn: TcpStream,
@@ -146,7 +144,6 @@ impl Connection {
     /// [`DEFAULT_CAPACITY`][Self::DEFAULT_CAPACITY] bytes. The
     /// [`pipeline_with_capacity()`][Self::pipeline_with_capacity()] method
     /// can be used to specify an alternate size.
-    ///
     pub fn pipeline(&mut self) -> Pipeline {
         self.pipeline_with_capacity(Self::DEFAULT_CAPACITY)
     }
@@ -169,10 +166,11 @@ impl Connection {
     /// into a temporary data structure, saving allocations.
     ///
     /// See `examples/pipelined.rs` for example usage.
-    ///
-    pub fn pipeline_from_initial<F, I>(&mut self, initial: Query, f: F) -> QueryResult<Pipeline>
+    pub fn pipeline_from_initial<T, F, I>(&mut self, initial: Query, f: F) -> QueryResult<Pipeline>
     where
-        F: Fn(QueryResult<ResponseItem>) -> Option<I>,
+        T: FromStr + fmt::Debug,
+        T::Err: Error + Send + 'static,
+        F: Fn(QueryResult<ResponseItem<T>>) -> Option<I>,
         I: IntoIterator<Item = Query>,
     {
         Pipeline::from_initial(self, initial, f)
@@ -188,7 +186,7 @@ impl Connection {
         Ok(self
             .pipeline()
             .push(Query::Version)?
-            .pop()
+            .pop::<String>()
             .unwrap()?
             .next()
             .unwrap()?
@@ -198,7 +196,7 @@ impl Connection {
 
     /// Convenience function to execute a [`Query::AsSetMembers`] query in a
     /// new [`Pipeline`].
-    pub fn as_set_members(&mut self, s: &str) -> QueryResult<Vec<ResponseItem>> {
+    pub fn as_set_members(&mut self, s: &str) -> QueryResult<Vec<ResponseItem<String>>> {
         self.pipeline()
             .push(Query::AsSetMembers(s.to_owned()))?
             .pop()
@@ -208,7 +206,7 @@ impl Connection {
 
     /// Convenience function to execute a [`Query::Ipv4Routes`] query in a
     /// new [`Pipeline`].
-    pub fn ipv4_routes(&mut self, s: &str) -> QueryResult<Vec<ResponseItem>> {
+    pub fn ipv4_routes(&mut self, s: &str) -> QueryResult<Vec<ResponseItem<String>>> {
         self.pipeline()
             .push(Query::Ipv4Routes(s.to_owned()))?
             .pop()
@@ -218,7 +216,7 @@ impl Connection {
 
     /// Convenience function to execute a [`Query::Ipv6Routes`] query in a
     /// new [`Pipeline`].
-    pub fn ipv6_routes(&mut self, s: &str) -> QueryResult<Vec<ResponseItem>> {
+    pub fn ipv6_routes(&mut self, s: &str) -> QueryResult<Vec<ResponseItem<String>>> {
         self.pipeline()
             .push(Query::Ipv6Routes(s.to_owned()))?
             .pop()

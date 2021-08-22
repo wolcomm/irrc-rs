@@ -1,21 +1,25 @@
-extern crate simple_logger;
-
+use std::convert::{TryFrom, TryInto};
 use std::env::args;
 use std::error::Error;
+use std::fmt;
 use std::panic;
 use std::sync::mpsc;
 use std::thread;
 
+use ipnet::IpNet;
+use irrc::{IrrClient, Query, QueryResult, ResponseItem};
 use prefixset::{IpPrefix, Ipv4Prefix, Ipv6Prefix, PrefixSet};
 use simple_logger::SimpleLogger;
 
-use irrc::{IrrClient, Query, QueryResult, ResponseItem};
-
 struct CollectorSender<P>(mpsc::Sender<P>);
 
-impl<P: IpPrefix> CollectorSender<P> {
-    fn collect(&self, item: ResponseItem) {
-        match item.content().parse() {
+impl<P> CollectorSender<P>
+where
+    P: IpPrefix + TryFrom<IpNet>,
+    <P as TryFrom<IpNet>>::Error: fmt::Display,
+{
+    fn collect(&self, item: ResponseItem<IpNet>) {
+        match item.into_content().try_into() {
             Ok(prefix) => {
                 if let Err(err) = self.0.send(prefix) {
                     log::warn!("failed to send prefix to collector: {}", err);
@@ -75,7 +79,7 @@ fn log_warning<E: Error>(err: E) -> E {
     err
 }
 
-fn into_routes_queries(item: ResponseItem) -> [Query; 2] {
+fn into_routes_queries(item: ResponseItem<String>) -> [Query; 2] {
     [
         Query::Ipv4Routes(item.content().to_string()),
         Query::Ipv6Routes(item.content().to_string()),

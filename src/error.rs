@@ -4,18 +4,18 @@ use std::io;
 use std::num::ParseIntError;
 use std::str::Utf8Error;
 
-use super::Pipeline;
+use crate::pipeline::Pipeline;
 
 /// Error responses returned by [IRRd].
 ///
 /// [IRRd]: https://irrd.readthedocs.io/en/stable/users/queries/#responses
-///
 // TODO: these should contain the original query
 #[derive(Debug, PartialEq)]
 pub enum ResponseError {
     /// the query was valid, but the primary key queried for did not exist.
     KeyNotFound,
-    /// the query was valid, but there are multiple copies of the key in one database.
+    /// the query was valid, but there are multiple copies of the key in one
+    /// database.
     KeyNotUnique,
     /// The query was invalid.
     Other(String),
@@ -92,6 +92,8 @@ pub enum QueryError {
     ParseErr,
     /// An unrecoverable error during parsing.
     ParseFailure,
+    /// An error occured while parsing a response item.
+    ItemParse(Box<dyn Error + Send>),
 }
 
 impl fmt::Display for QueryError {
@@ -100,10 +102,11 @@ impl fmt::Display for QueryError {
             Self::ResponseErr(err) => write!(f, "error response from server: {}", err),
             Self::Io(err) => write!(f, "an IO error occurred: {}", err),
             Self::Utf8Decode(err) => write!(f, "failed to decode bytes as UTF-8: {}", err),
-            Self::BadLength(err) => write!(f, "failed to decode response length; {}", err),
+            Self::BadLength(err) => write!(f, "failed to decode response length: {}", err),
             Self::Incomplete => write!(f, "insufficient bytes in parse buffer"),
             Self::ParseErr => write!(f, "failed to parse response"),
             Self::ParseFailure => write!(f, "failed to parse response"),
+            Self::ItemParse(err) => write!(f, "failed to parse response item: {}", err),
         }
     }
 }
@@ -115,6 +118,7 @@ impl Error for QueryError {
             Self::Io(err) => Some(err),
             Self::Utf8Decode(err) => Some(err),
             Self::BadLength(err) => Some(err),
+            Self::ItemParse(err) => Some(err.as_ref()),
             _ => None,
         }
     }

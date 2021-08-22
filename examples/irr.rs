@@ -1,8 +1,5 @@
-extern crate simple_logger;
-
-use simple_logger::SimpleLogger;
-
 use irrc::{IrrClient, QueryResult};
+use simple_logger::SimpleLogger;
 
 fn main() -> QueryResult<()> {
     SimpleLogger::new().init().unwrap();
