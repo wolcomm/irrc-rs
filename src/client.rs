@@ -8,6 +8,7 @@ use std::time::Duration;
 use crate::{
     pipeline::{Pipeline, ResponseItem},
     query::{Query, QueryResult},
+    types::{AsSet, AutNum},
 };
 
 /// Builder for IRR query protocol connections.
@@ -196,9 +197,9 @@ impl Connection {
 
     /// Convenience function to execute a [`Query::AsSetMembers`] query in a
     /// new [`Pipeline`].
-    pub fn as_set_members(&mut self, s: &str) -> QueryResult<Vec<ResponseItem<String>>> {
+    pub fn as_set_members(&mut self, as_set: AsSet) -> QueryResult<Vec<ResponseItem<String>>> {
         self.pipeline()
-            .push(Query::AsSetMembers(s.to_owned()))?
+            .push(Query::AsSetMembers(as_set))?
             .pop()
             .unwrap()?
             .collect()
@@ -206,9 +207,9 @@ impl Connection {
 
     /// Convenience function to execute a [`Query::Ipv4Routes`] query in a
     /// new [`Pipeline`].
-    pub fn ipv4_routes(&mut self, s: &str) -> QueryResult<Vec<ResponseItem<String>>> {
+    pub fn ipv4_routes(&mut self, autnum: AutNum) -> QueryResult<Vec<ResponseItem<String>>> {
         self.pipeline()
-            .push(Query::Ipv4Routes(s.to_owned()))?
+            .push(Query::Ipv4Routes(autnum))?
             .pop()
             .unwrap()?
             .collect()
@@ -216,9 +217,9 @@ impl Connection {
 
     /// Convenience function to execute a [`Query::Ipv6Routes`] query in a
     /// new [`Pipeline`].
-    pub fn ipv6_routes(&mut self, s: &str) -> QueryResult<Vec<ResponseItem<String>>> {
+    pub fn ipv6_routes(&mut self, autnum: AutNum) -> QueryResult<Vec<ResponseItem<String>>> {
         self.pipeline()
-            .push(Query::Ipv6Routes(s.to_owned()))?
+            .push(Query::Ipv6Routes(autnum))?
             .pop()
             .unwrap()?
             .collect()

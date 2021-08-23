@@ -7,10 +7,16 @@ fn main() -> QueryResult<()> {
         .init()
         .unwrap();
     let mut irr = IrrClient::new("whois.radb.net:43").connect()?;
-    irr.as_set_members("AS37271:AS-CUSTOMERS")?
+    irr.as_set_members("AS37271:AS-CUSTOMERS".parse().unwrap())?
         .into_iter()
         .filter_map(|item| {
-            let autnum = item.content();
+            let autnum = match item.content().parse() {
+                Ok(autnum) => autnum,
+                Err(err) => {
+                    log::error!("failed to parse aut-num: {}", err);
+                    return None;
+                }
+            };
             match irr.ipv4_routes(autnum) {
                 Ok(routes) => Some(routes),
                 Err(err) => {

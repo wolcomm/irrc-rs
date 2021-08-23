@@ -4,7 +4,12 @@ use std::iter::{once, Once};
 use std::str::{from_utf8, FromStr};
 use std::time::Duration;
 
-use crate::{error::QueryError, parse, pipeline::ResponseContent};
+use crate::{
+    error::QueryError,
+    parse,
+    pipeline::ResponseContent,
+    types::{AsSet, AutNum, Mntner, RouteSet},
+};
 
 /// Alias for [`Result<T, error::QueryError>`].
 pub type QueryResult<T> = Result<T, QueryError>;
@@ -34,27 +39,27 @@ pub enum Query {
     /// Re-sets the list of sources to all those available on the server.
     UnsetSources,
     /// Returns all (direct) members of an `as-set`.
-    AsSetMembers(String),
+    AsSetMembers(AsSet),
     /// Returns all members of an `as-set`, recursively expanding `as-set`
     /// members as necessary.
-    AsSetMembersRecursive(String),
+    AsSetMembersRecursive(AsSet),
     /// Returns all (direct) members of a `route-set`.
-    RouteSetMembers(String),
+    RouteSetMembers(RouteSet),
     /// Returns all members of an `route-set`, recursively expanding members
     /// as necessary.
-    RouteSetMembersRecursive(String),
+    RouteSetMembersRecursive(RouteSet),
     /// Returns all IPv4 prefixes corresponding to a `route` object having
     /// `origin:` set to the provided AS.
-    Ipv4Routes(String),
+    Ipv4Routes(AutNum),
     /// Returns all IPv6 prefixes corresponding to a `route6` object having
     /// `origin:` set to the provided AS.
-    Ipv6Routes(String),
+    Ipv6Routes(AutNum),
     /// Returns an RPSL object exactly matching the provided key, of the
     /// specified RPSL object class.
     RpslObject(RpslObjectClass, String),
     /// Returns all RPSL objects with the specified maintainer in their
     /// `mnt-by:` attribute.
-    MntBy(String),
+    MntBy(Mntner),
     /// Returns the unique `origin:`s of `route` or `route6` objects exactly
     /// matching the provided prefix.
     Origins(String),
@@ -81,10 +86,10 @@ impl Query {
             Self::GetSources => "!s-lc\n".to_owned(),
             Self::SetSources(sources) => format!("!s{}\n", sources.join(",")),
             Self::UnsetSources => "!s-*\n".to_owned(),
-            Self::AsSetMembers(q) | Self::RouteSetMembers(q) => format!("!i{}\n", q),
-            Self::AsSetMembersRecursive(q) | Self::RouteSetMembersRecursive(q) => {
-                format!("!i{},1\n", q)
-            }
+            Self::AsSetMembers(q) => format!("!i{}\n", q),
+            Self::AsSetMembersRecursive(q) => format!("!i{},1\n", q),
+            Self::RouteSetMembers(q) => format!("!i{}\n", q),
+            Self::RouteSetMembersRecursive(q) => format!("!i{},1\n", q),
             Self::Ipv4Routes(q) => format!("!g{}\n", q),
             Self::Ipv6Routes(q) => format!("!6{}\n", q),
             Self::RpslObject(class, q) => format!("!m{},{}\n", class, q),
@@ -214,15 +219,15 @@ mod tests {
                     Just(Self::GetSources),
                     any::<Vec<String>>().prop_map(Self::SetSources),
                     Just(Self::UnsetSources),
-                    any::<String>().prop_map(Self::AsSetMembers),
-                    any::<String>().prop_map(Self::AsSetMembersRecursive),
-                    any::<String>().prop_map(Self::RouteSetMembers),
-                    any::<String>().prop_map(Self::RouteSetMembersRecursive),
-                    any::<String>().prop_map(Self::Ipv4Routes),
-                    any::<String>().prop_map(Self::Ipv6Routes),
+                    any::<AsSet>().prop_map(Self::AsSetMembers),
+                    any::<AsSet>().prop_map(Self::AsSetMembersRecursive),
+                    any::<RouteSet>().prop_map(Self::RouteSetMembers),
+                    any::<RouteSet>().prop_map(Self::RouteSetMembersRecursive),
+                    any::<AutNum>().prop_map(Self::Ipv4Routes),
+                    any::<AutNum>().prop_map(Self::Ipv6Routes),
                     any::<(RpslObjectClass, String)>()
                         .prop_map(|(class, object)| Self::RpslObject(class, object)),
-                    any::<String>().prop_map(Self::MntBy),
+                    any::<Mntner>().prop_map(Self::MntBy),
                     any::<String>().prop_map(Self::Origins),
                     any::<String>().prop_map(Self::RoutesExact),
                     any::<String>().prop_map(Self::RoutesLess),

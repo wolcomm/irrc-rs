@@ -7,7 +7,7 @@
 //! # Quickstart
 //!
 //! ``` no_run
-//! use irrc::{IrrClient, Query, QueryResult};
+//! use irrc::{IrrClient, Query, QueryResult, types::AutNum};
 //!
 //! fn main() -> QueryResult<()> {
 //!
@@ -16,11 +16,11 @@
 //!
 //!     println!("connected to {}", irr.version()?);
 //!
-//!     let as_set = "AS-FOO".to_string();
+//!     let as_set = "AS-FOO".parse().unwrap();
 //!     println!("getting members of {}", as_set);
 //!     irr.pipeline()
 //!         .push(Query::AsSetMembersRecursive(as_set))?
-//!         .responses::<String>()
+//!         .responses::<AutNum>()
 //!         .filter_map(|result| {
 //!             result.map_err(|err| {
 //!                 println!("error parsing member: {}", err);
@@ -45,6 +45,9 @@ mod query;
 
 /// Error types returned during query execution
 pub mod error;
+
+/// Types provided and/or returned by IRRd queries.
+pub mod types;
 
 pub use client::{Connection, IrrClient};
 pub use pipeline::{Pipeline, Response, ResponseItem, Responses};

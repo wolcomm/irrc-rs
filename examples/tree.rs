@@ -3,7 +3,7 @@ use std::convert::TryInto;
 use std::env::args;
 
 use ipnet::IpNet;
-use irrc::{IrrClient, Query, QueryResult};
+use irrc::{types::AutNum, IrrClient, Query, QueryResult};
 use prefixset::{Ipv4Prefix, Ipv6Prefix, PrefixSet};
 use simple_logger::SimpleLogger;
 
@@ -11,12 +11,12 @@ fn main() -> QueryResult<()> {
     SimpleLogger::new().init().unwrap();
     let args: Vec<String> = args().collect();
     let host = format!("{}:43", args[1]);
-    let object = args[2].clone();
+    let object = args[2].parse().unwrap();
     let mut irr = IrrClient::new(host).connect()?;
     let mut pipeline = irr.pipeline();
     pipeline.push(Query::AsSetMembersRecursive(object))?;
-    let mut autnums: HashMap<String, (PrefixSet<Ipv4Prefix>, PrefixSet<Ipv6Prefix>)> = pipeline
-        .pop::<String>()
+    let mut autnums: HashMap<AutNum, (PrefixSet<Ipv4Prefix>, PrefixSet<Ipv6Prefix>)> = pipeline
+        .pop()
         .unwrap()?
         .filter_map(|item| {
             item.map_err(|err| {
@@ -30,19 +30,14 @@ fn main() -> QueryResult<()> {
     pipeline.extend(
         autnums
             .keys()
-            .map(|k| {
-                [
-                    Query::Ipv4Routes(k.to_owned()),
-                    Query::Ipv6Routes(k.to_owned()),
-                ]
-            })
+            .map(|k| [Query::Ipv4Routes(*k), Query::Ipv6Routes(*k)])
             .flatten(),
     );
     while let Some(response_result) = pipeline.pop::<IpNet>() {
         match response_result {
             Ok(response) => match response.query() {
                 Query::Ipv4Routes(autnum) => {
-                    autnums.entry(autnum.to_string()).and_modify(|(set, _)| {
+                    autnums.entry(*autnum).and_modify(|(set, _)| {
                         set.extend(response.filter_map::<Ipv4Prefix, _>(|item_result| {
                             item_result
                                 .map(|item| item.into_content().try_into().unwrap())
@@ -52,7 +47,7 @@ fn main() -> QueryResult<()> {
                     });
                 }
                 Query::Ipv6Routes(autnum) => {
-                    autnums.entry(autnum.to_string()).and_modify(|(_, set)| {
+                    autnums.entry(*autnum).and_modify(|(_, set)| {
                         set.extend(response.filter_map::<Ipv6Prefix, _>(|item_result| {
                             item_result
                                 .map(|item| item.into_content().try_into().unwrap())

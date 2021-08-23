@@ -75,7 +75,7 @@ impl<'a> Pipeline<'a> {
     /// use irrc::Query;
     ///
     /// let mut pipeline = conn.pipeline();
-    /// let query = Query::Ipv6Routes("AS65000".to_string());
+    /// let query = Query::Ipv6Routes("AS65000".parse().unwrap());
     /// pipeline.push(query)?;
     /// # Ok(())
     /// # }
@@ -193,12 +193,12 @@ impl<'a> Pipeline<'a> {
     /// ``` no_run
     /// # use irrc::{IrrClient, Query, QueryResult};
     /// # fn main() -> QueryResult<()> {
-    /// let autnum = "AS65000".to_string();
+    /// let autnum = "AS65000".parse().unwrap();
     /// IrrClient::new("whois.radb.net:43")
     ///     .connect()?
     ///     .pipeline()
-    ///     .push(Query::Ipv4Routes(autnum.clone()))?
-    ///     .push(Query::Ipv6Routes(autnum.clone()))?
+    ///     .push(Query::Ipv4Routes(autnum))?
+    ///     .push(Query::Ipv6Routes(autnum))?
     ///     .responses::<String>()
     ///     .filter_map(Result::ok)
     ///     .for_each(|route| println!("{:?}", route));

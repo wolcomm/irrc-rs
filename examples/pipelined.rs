@@ -7,7 +7,7 @@ use std::sync::mpsc;
 use std::thread;
 
 use ipnet::IpNet;
-use irrc::{IrrClient, Query, QueryResult, ResponseItem};
+use irrc::{types::AutNum, IrrClient, Query, QueryResult, ResponseItem};
 use prefixset::{IpPrefix, Ipv4Prefix, Ipv6Prefix, PrefixSet};
 use simple_logger::SimpleLogger;
 
@@ -79,21 +79,21 @@ fn log_warning<E: Error>(err: E) -> E {
     err
 }
 
-fn into_routes_queries(item: ResponseItem<String>) -> [Query; 2] {
+fn into_routes_queries(item: ResponseItem<AutNum>) -> [Query; 2] {
     [
-        Query::Ipv4Routes(item.content().to_string()),
-        Query::Ipv6Routes(item.content().to_string()),
+        Query::Ipv4Routes(*item.content()),
+        Query::Ipv6Routes(*item.content()),
     ]
 }
 
 fn main() -> QueryResult<()> {
     SimpleLogger::new()
-        .with_level(log::LevelFilter::Error)
+        .with_level(log::LevelFilter::Info)
         .init()
         .unwrap();
     let args: Vec<String> = args().collect();
     let host = format!("{}:43", args[1]);
-    let object = args[2].clone();
+    let object = args[2].parse().unwrap();
     let (Collector(tx_ipv4, jh_ipv4), Collector(tx_ipv6, jh_ipv6)) = (
         Collector::<Ipv4Prefix>::spawn(),
         Collector::<Ipv6Prefix>::spawn(),
