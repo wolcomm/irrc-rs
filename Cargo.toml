@@ -1,6 +1,6 @@
 [package]
 name = "irrc"
-version = "0.1.0-alpha.1"
+version = "0.1.0-rc.1"
 edition = "2018"
 authors = ["Ben Maddison <benm@workonline.africa>"]
 description = "A client library for the IRRd query protocol"
