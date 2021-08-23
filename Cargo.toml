@@ -7,7 +7,7 @@ description = "A client library for the IRRd query protocol"
 license = "MIT"
 repository = "https://github.com/wolcomm/irrc-rs"
 readme = "README.md"
-keywords = ["irr", "rpsl", "as-set", "route", "bgp", "networking", "ip"]
+keywords = ["irr", "rpsl", "as-set", "route", "bgp"]
 categories = ["network-programming", "database"]
 
 [dependencies]
