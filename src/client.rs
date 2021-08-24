@@ -170,7 +170,7 @@ impl Connection {
     pub fn pipeline_from_initial<T, F, I>(&mut self, initial: Query, f: F) -> QueryResult<Pipeline>
     where
         T: FromStr + fmt::Debug,
-        T::Err: Error + Send + 'static,
+        T::Err: Error + Send + Sync + 'static,
         F: Fn(QueryResult<ResponseItem<T>>) -> Option<I>,
         I: IntoIterator<Item = Query>,
     {

@@ -126,7 +126,7 @@ impl Query {
     pub(crate) fn parse_item<T>(&self, input: &[u8]) -> QueryResult<(usize, ResponseContent<T>)>
     where
         T: FromStr + fmt::Debug,
-        T::Err: Error + Send + 'static,
+        T::Err: Error + Send + Sync + 'static,
     {
         let (_, (consumed, item)) = match self {
             _ if !self.expect_data() => parse::noop(input)?,

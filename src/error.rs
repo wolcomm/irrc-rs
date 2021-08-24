@@ -93,7 +93,7 @@ pub enum QueryError {
     /// An unrecoverable error during parsing.
     ParseFailure,
     /// An error occured while parsing a response item.
-    ItemParse(Box<dyn Error + Send>),
+    ItemParse(Box<dyn Error + Send + Sync>),
 }
 
 impl fmt::Display for QueryError {

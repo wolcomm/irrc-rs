@@ -39,7 +39,7 @@ impl<'a> Pipeline<'a> {
     where
         'a: 'b,
         T: FromStr + fmt::Debug,
-        T::Err: Error + Send + 'static,
+        T::Err: Error + Send + Sync + 'static,
         F: Fn(QueryResult<ResponseItem<T>>) -> Option<I>,
         I: IntoIterator<Item = Query>,
     {
@@ -121,7 +121,7 @@ impl<'a> Pipeline<'a> {
     pub fn pop<'b, T>(&'b mut self) -> Option<QueryResult<Response<'a, 'b, T>>>
     where
         T: FromStr + fmt::Debug,
-        T::Err: Error + Send + 'static,
+        T::Err: Error + Send + Sync + 'static,
     {
         self.pop_wrapped()
             .map(|wrapped| wrapped.map_err(|err| err.take_inner()))
@@ -133,7 +133,7 @@ impl<'a> Pipeline<'a> {
     where
         'a: 'b,
         T: FromStr + fmt::Debug,
-        T::Err: Error + Send + 'static,
+        T::Err: Error + Send + Sync + 'static,
     {
         self.queue.pop_front().map(move |query| {
             let expect = loop {
@@ -209,7 +209,7 @@ impl<'a> Pipeline<'a> {
     where
         'a: 'b,
         T: FromStr + fmt::Debug,
-        T::Err: Error + Send + 'static,
+        T::Err: Error + Send + Sync + 'static,
     {
         Responses {
             pipeline: Some(self),
@@ -299,7 +299,7 @@ pub struct Responses<'a, 'b, T>
 where
     'a: 'b,
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + 'static,
+    T::Err: Error + Send + Sync + 'static,
 {
     pipeline: Option<&'b mut Pipeline<'a>>,
     current_reponse: Option<Response<'a, 'b, T>>,
@@ -308,7 +308,7 @@ where
 impl<T> Responses<'_, '_, T>
 where
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + 'static,
+    T::Err: Error + Send + Sync + 'static,
 {
     fn consume(&mut self) {
         for item in self {
@@ -321,7 +321,7 @@ impl<'a, 'b, T> Iterator for Responses<'a, 'b, T>
 where
     'a: 'b,
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + 'static,
+    T::Err: Error + Send + Sync + 'static,
 {
     type Item = QueryResult<ResponseItem<T>>;
     fn next(&mut self) -> Option<Self::Item> {
@@ -367,7 +367,7 @@ pub struct Response<'a, 'b, T>
 where
     'a: 'b,
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + 'static,
+    T::Err: Error + Send + Sync + 'static,
 {
     query: Query,
     pipeline: Option<&'b mut Pipeline<'a>>,
@@ -380,7 +380,7 @@ impl<'a, 'b, T> Response<'a, 'b, T>
 where
     'a: 'b,
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + 'static,
+    T::Err: Error + Send + Sync + 'static,
 {
     pub(crate) fn new(query: Query, pipeline: &'b mut Pipeline<'a>, expect: usize) -> Self {
         Self {
@@ -455,7 +455,7 @@ where
 impl<T> Drop for Response<'_, '_, T>
 where
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + 'static,
+    T::Err: Error + Send + Sync + 'static,
 {
     fn drop(&mut self) {
         self.consume();
@@ -465,7 +465,7 @@ where
 impl<T> Iterator for Response<'_, '_, T>
 where
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + 'static,
+    T::Err: Error + Send + Sync + 'static,
 {
     type Item = QueryResult<ResponseItem<T>>;
 
@@ -480,7 +480,7 @@ where
 enum ItemOrYield<'a, 'b, T>
 where
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + 'static,
+    T::Err: Error + Send + Sync + 'static,
 {
     Item(QueryResult<ResponseItem<T>>),
     Yield(&'b mut Pipeline<'a>),
@@ -494,12 +494,12 @@ where
 pub struct ResponseItem<T>(ResponseContent<T>, Query)
 where
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + 'static;
+    T::Err: Error + Send + Sync + 'static;
 
 impl<T> ResponseItem<T>
 where
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + 'static,
+    T::Err: Error + Send + Sync + 'static,
 {
     /// Borrow the content of [`ResponseItem`].
     pub fn content(&self) -> &T {
@@ -521,12 +521,12 @@ where
 pub(crate) struct ResponseContent<T>(T)
 where
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + 'static;
+    T::Err: Error + Send + Sync + 'static;
 
 impl<T> ResponseContent<T>
 where
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + 'static,
+    T::Err: Error + Send + Sync + 'static,
 {
     fn content(&self) -> &T {
         &self.0
@@ -540,7 +540,7 @@ where
 impl<T> FromStr for ResponseContent<T>
 where
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + 'static,
+    T::Err: Error + Send + Sync + 'static,
 {
     type Err = QueryError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
