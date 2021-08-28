@@ -35,7 +35,7 @@
 //! ```
 //!
 //! [irrd]: https://irrd.readthedocs.io/en/stable/users/queries/#irrd-style-queries
-#![doc(html_root_url = "https://docs.rs/irrc/0.1.0-rc.1")]
+#![doc(html_root_url = "https://docs.rs/irrc/0.1.0-rc.2")]
 #![warn(missing_docs)]
 
 mod client;
