@@ -17,7 +17,6 @@ use crate::{
 /// A sequence of queries to be executed sequentially using pipelining.
 ///
 /// See [`Connection::pipeline()`] for details.
-#[derive(Debug)]
 pub struct Pipeline<'a> {
     conn: &'a mut Connection,
     buf: Buffer,
@@ -220,10 +219,12 @@ impl<'a> Pipeline<'a> {
     fn fetch(&mut self) -> io::Result<usize> {
         self.buf.shift();
         let space = self.buf.space();
-        log::debug!("trying to fetch up to {} bytes", space.len());
+        log::trace!("trying to fetch up to {} bytes", space.len());
         let fetched = self.conn.read(space)?;
-        log::debug!("fetched {} bytes", fetched);
-        Ok(self.buf.fill(fetched))
+        log::trace!("fetched {} bytes", fetched);
+        let filled = self.buf.fill(fetched);
+        log::trace!("{:?}", self);
+        Ok(filled)
     }
 
     /// Clear an existing [`Pipeline`] by consuming and discarding
@@ -288,6 +289,26 @@ impl Extend<Query> for Pipeline<'_> {
                 log::error!("error enqueuing query: {}", err)
             }
         })
+    }
+}
+
+impl fmt::Debug for Pipeline<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let max_length = 100;
+        let (buf_data, truncated) = if self.buf.available_data() <= max_length {
+            (self.buf.data(), "")
+        } else {
+            (&self.buf.data()[..max_length], " ...")
+        };
+        let buf_decoded = String::from_utf8_lossy(buf_data);
+        f.debug_struct("Pipeline")
+            .field("conn", &self.conn)
+            .field(
+                "buf",
+                &format_args!("'{}{}'", buf_decoded.escape_debug(), truncated),
+            )
+            .field("queue", &self.queue)
+            .finish()
     }
 }
 
