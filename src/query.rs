@@ -1,7 +1,8 @@
+use std::convert::TryInto;
 use std::error::Error;
 use std::fmt;
 use std::iter::{once, Once};
-use std::str::{from_utf8, FromStr};
+use std::str::FromStr;
 use std::time::Duration;
 
 use crate::{
@@ -139,7 +140,9 @@ impl Query {
             | Self::RoutesMore(_) => parse::paragraph(input)?,
             _ => parse::word(input)?,
         };
-        let content = from_utf8(item)?.parse()?;
+        let content = item
+            .try_into()
+            .map_err(|err: QueryError| err.into_sized(consumed))?;
         Ok((consumed, content))
     }
 }

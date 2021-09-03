@@ -2,7 +2,6 @@ use std::error::Error;
 use std::fmt;
 use std::io;
 use std::num::ParseIntError;
-use std::str::Utf8Error;
 
 use crate::pipeline::Pipeline;
 
@@ -82,8 +81,6 @@ pub enum QueryError {
     ResponseErr(ResponseError),
     /// IO errors on the underlying transport.
     Io(io::Error),
-    /// UTF-8 decoding failure from the received byte stream.
-    Utf8Decode(Utf8Error),
     /// Failure parsing the "expected length" of a response.
     BadLength(ParseIntError),
     /// The parse buffer did not contain enough data.
@@ -94,6 +91,32 @@ pub enum QueryError {
     ParseFailure,
     /// An error occured while parsing a response item.
     ItemParse(Box<dyn Error + Send + Sync>),
+    /// An error occured while parsing a response item.
+    ///
+    /// This variant wraps [`ItemParse`][Self::ItemParse], including the
+    /// length of the failed item.
+    SizedItemParse(Box<QueryError>, usize),
+}
+
+impl QueryError {
+    /// Construct a [`ItemParse`][Self::ItemParse] variant from an underlying
+    /// error.
+    pub(crate) fn from_item_parse_err<E>(err: E) -> Self
+    where
+        E: Error + Send + Sync + 'static,
+    {
+        Self::ItemParse(Box::new(err))
+    }
+
+    pub(crate) fn into_sized(self, size: usize) -> Self {
+        match self {
+            err @ Self::ItemParse(_) => Self::SizedItemParse(Box::new(err), size),
+            err => panic!(
+                "attempted to construct a `QueryError::SizedItemParse` from {:?}",
+                err
+            ),
+        }
+    }
 }
 
 impl fmt::Display for QueryError {
@@ -101,12 +124,12 @@ impl fmt::Display for QueryError {
         match self {
             Self::ResponseErr(err) => write!(f, "error response from server: {}", err),
             Self::Io(err) => write!(f, "an IO error occurred: {}", err),
-            Self::Utf8Decode(err) => write!(f, "failed to decode bytes as UTF-8: {}", err),
             Self::BadLength(err) => write!(f, "failed to decode response length: {}", err),
             Self::Incomplete => write!(f, "insufficient bytes in parse buffer"),
             Self::ParseErr => write!(f, "failed to parse response"),
             Self::ParseFailure => write!(f, "failed to parse response"),
             Self::ItemParse(err) => write!(f, "failed to parse response item: {}", err),
+            Self::SizedItemParse(err, _) => write!(f, "{}", err),
         }
     }
 }
@@ -116,9 +139,9 @@ impl Error for QueryError {
         match self {
             Self::ResponseErr(err) => Some(err),
             Self::Io(err) => Some(err),
-            Self::Utf8Decode(err) => Some(err),
             Self::BadLength(err) => Some(err),
             Self::ItemParse(err) => Some(err.as_ref()),
+            Self::SizedItemParse(err, _) => Some(err.as_ref()),
             _ => None,
         }
     }
@@ -152,12 +175,6 @@ impl From<ResponseError> for QueryError {
 impl From<io::Error> for QueryError {
     fn from(err: io::Error) -> Self {
         Self::Io(err)
-    }
-}
-
-impl From<Utf8Error> for QueryError {
-    fn from(err: Utf8Error) -> Self {
-        Self::Utf8Decode(err)
     }
 }
 

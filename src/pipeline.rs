@@ -1,9 +1,10 @@
 use std::collections::VecDeque;
+use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
 use std::io;
 use std::marker::PhantomData;
-use std::str::FromStr;
+use std::str::{from_utf8, FromStr};
 
 use circular::Buffer;
 
@@ -451,6 +452,13 @@ where
                                     break Some(ItemOrYield::Item(Err(err.into())));
                                 }
                             }
+                            Err(QueryError::SizedItemParse(err, consumed)) => {
+                                log::error!("error parsing content from response item: {}", err);
+                                pipeline.buf.consume(consumed);
+                                self.seen += consumed;
+                                self.pipeline = Some(pipeline);
+                                break Some(ItemOrYield::Item(Err(*err)));
+                            }
                             Err(err) => {
                                 log::error!("error parsing word from buffer: {}", err);
                                 break Some(ItemOrYield::Item(Err(err)));
@@ -558,17 +566,19 @@ where
     }
 }
 
-impl<T> FromStr for ResponseContent<T>
+impl<T> TryFrom<&[u8]> for ResponseContent<T>
 where
     T: FromStr + fmt::Debug,
     T::Err: Error + Send + Sync + 'static,
 {
-    type Err = QueryError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let inner = match s.parse() {
-            Ok(inner) => inner,
-            Err(err) => return Err(QueryError::ItemParse(Box::new(err))),
-        };
-        Ok(Self(inner))
+    type Error = QueryError;
+
+    fn try_from(buf: &[u8]) -> Result<Self, Self::Error> {
+        Ok(Self(
+            from_utf8(buf)
+                .map_err(QueryError::from_item_parse_err)?
+                .parse()
+                .map_err(QueryError::from_item_parse_err)?,
+        ))
     }
 }
