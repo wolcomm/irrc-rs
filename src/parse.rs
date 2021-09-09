@@ -7,7 +7,7 @@ use nom::{
         is_newline,
         streaming::{char, digit1, newline, space0},
     },
-    combinator::{consumed, map, map_res},
+    combinator::{consumed, map, map_res, opt},
     sequence::{delimited, terminated},
     IResult,
 };
@@ -97,12 +97,26 @@ pub fn noop(input: &[u8]) -> IResult<&[u8], (usize, &[u8])> {
     Ok((input, (0, &[])))
 }
 
-// TODO
 pub fn paragraph(input: &[u8]) -> IResult<&[u8], (usize, &[u8])> {
     map(
-        consumed(take_until("\n\n")),
+        consumed(take_paragraph),
         |(consumed, paragraph): (&[u8], &[u8])| (consumed.len(), paragraph),
     )(input)
+}
+
+fn take_paragraph(input: &[u8]) -> IResult<&[u8], &[u8]> {
+    let (rem, _) = opt(newline)(input)?;
+    let (rem, res) = match take_until("\n\n")(rem) {
+        Ok((rem, res)) => {
+            let (rem, _) = newline(rem)?;
+            (rem, res)
+        }
+        err @ Err(_) => match take_until::<_, _, (&[u8], _)>(EOR)(rem) {
+            Ok((rem, res)) => (rem, res),
+            Err(_) => return err,
+        },
+    };
+    Ok((rem, res))
 }
 
 #[cfg(test)]
