@@ -7,7 +7,8 @@
 //! # Quickstart
 //!
 //! ``` no_run
-//! use irrc::{IrrClient, Query, QueryResult, types::AutNum};
+//! use irrc::{IrrClient, Query, QueryResult};
+//! use rpsl::names::AutNum;
 //!
 //! fn main() -> QueryResult<()> {
 //!
@@ -45,9 +46,6 @@ mod query;
 
 /// Error types returned during query execution
 pub mod error;
-
-/// Types provided and/or returned by IRRd queries.
-pub mod types;
 
 pub use client::{Connection, IrrClient};
 pub use pipeline::{Pipeline, Response, ResponseItem, Responses};

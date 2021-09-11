@@ -5,12 +5,9 @@ use std::iter::{once, Once};
 use std::str::FromStr;
 use std::time::Duration;
 
-use crate::{
-    error::QueryError,
-    parse,
-    pipeline::ResponseContent,
-    types::{AsSet, AutNum, Mntner, RouteSet},
-};
+use rpsl::names::{AsSet, AutNum, Mntner, RouteSet};
+
+use crate::{error::QueryError, parse, pipeline::ResponseContent};
 
 /// Alias for [`Result<T, error::QueryError>`].
 pub type QueryResult<T> = Result<T, QueryError>;

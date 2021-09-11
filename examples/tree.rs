@@ -3,8 +3,9 @@ use std::convert::TryInto;
 use std::env::args;
 
 use ipnet::IpNet;
-use irrc::{types::AutNum, IrrClient, Query, QueryResult};
+use irrc::{IrrClient, Query, QueryResult};
 use prefixset::{Ipv4Prefix, Ipv6Prefix, PrefixSet};
+use rpsl::names::AutNum;
 use simple_logger::SimpleLogger;
 
 fn main() -> QueryResult<()> {

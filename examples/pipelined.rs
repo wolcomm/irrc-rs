@@ -7,8 +7,9 @@ use std::sync::mpsc;
 use std::thread;
 
 use ipnet::IpNet;
-use irrc::{types::AutNum, IrrClient, Query, QueryResult, ResponseItem};
+use irrc::{IrrClient, Query, QueryResult, ResponseItem};
 use prefixset::{IpPrefix, Ipv4Prefix, Ipv6Prefix, PrefixSet};
+use rpsl::names::AutNum;
 use simple_logger::SimpleLogger;
 
 struct CollectorSender<P>(mpsc::Sender<P>);
