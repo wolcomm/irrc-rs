@@ -49,4 +49,4 @@ pub mod error;
 
 pub use client::{Connection, IrrClient};
 pub use pipeline::{Pipeline, Response, ResponseItem, Responses};
-pub use query::{Query, QueryResult};
+pub use query::{Query, QueryResult, RpslObjectClass};
