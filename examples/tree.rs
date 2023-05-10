@@ -1,10 +1,8 @@
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::env::args;
 
-use ipnet::IpNet;
+use ip::{traits::PrefixSet as _, Any, Ipv4, Ipv6, Prefix, PrefixSet};
 use irrc::{IrrClient, Query, QueryResult};
-use prefixset::{Ipv4Prefix, Ipv6Prefix, PrefixSet};
 use rpsl::names::AutNum;
 use simple_logger::SimpleLogger;
 
@@ -16,7 +14,7 @@ fn main() -> QueryResult<()> {
     let mut irr = IrrClient::new(host).connect()?;
     let mut pipeline = irr.pipeline();
     pipeline.push(Query::AsSetMembersRecursive(object))?;
-    let mut autnums: HashMap<AutNum, (PrefixSet<Ipv4Prefix>, PrefixSet<Ipv6Prefix>)> = pipeline
+    let mut autnums: HashMap<AutNum, _> = pipeline
         .pop()
         .unwrap()?
         .filter_map(|item| {
@@ -24,22 +22,26 @@ fn main() -> QueryResult<()> {
                 log::warn!("{}", err);
                 err
             })
-            .map(|item| (item.into_content(), (PrefixSet::new(), PrefixSet::new())))
+            .map(|item| {
+                (
+                    item.into_content(),
+                    (PrefixSet::<Ipv4>::default(), PrefixSet::<Ipv6>::default()),
+                )
+            })
             .ok()
         })
         .collect();
     pipeline.extend(
         autnums
             .keys()
-            .map(|k| [Query::Ipv4Routes(*k), Query::Ipv6Routes(*k)])
-            .flatten(),
+            .flat_map(|k| [Query::Ipv4Routes(*k), Query::Ipv6Routes(*k)]),
     );
-    while let Some(response_result) = pipeline.pop::<IpNet>() {
+    while let Some(response_result) = pipeline.pop::<Prefix<Any>>() {
         match response_result {
             Ok(response) => match response.query() {
                 Query::Ipv4Routes(autnum) => {
                     autnums.entry(*autnum).and_modify(|(set, _)| {
-                        set.extend(response.filter_map::<Ipv4Prefix, _>(|item_result| {
+                        set.extend(response.filter_map::<Prefix<Ipv4>, _>(|item_result| {
                             item_result
                                 .map(|item| item.into_content().try_into().unwrap())
                                 .map_err(|err| log::warn!("error: {}", err))
@@ -49,7 +51,7 @@ fn main() -> QueryResult<()> {
                 }
                 Query::Ipv6Routes(autnum) => {
                     autnums.entry(*autnum).and_modify(|(_, set)| {
-                        set.extend(response.filter_map::<Ipv6Prefix, _>(|item_result| {
+                        set.extend(response.filter_map::<Prefix<Ipv6>, _>(|item_result| {
                             item_result
                                 .map(|item| item.into_content().try_into().unwrap())
                                 .map_err(|err| log::warn!("error: {}", err))
