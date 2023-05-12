@@ -42,6 +42,7 @@
 #![warn(clippy::cargo)]
 #![warn(clippy::nursery)]
 #![allow(clippy::redundant_pub_crate)]
+#![allow(clippy::multiple_crate_versions)]
 // rustc lints
 #![allow(box_pointers)]
 #![warn(absolute_paths_not_starting_with_crate)]
@@ -78,6 +79,14 @@
 #![warn(variant_size_differences)]
 // docs.rs build config
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
+
+// silence unused dev-dependency warnings
+#[cfg(test)]
+mod deps {
+    use ip as _;
+    use simple_logger as _;
+    use version_sync as _;
+}
 
 mod client;
 mod parse;

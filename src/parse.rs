@@ -20,10 +20,7 @@ type ResponseResult = Result<Option<usize>, ResponseError>;
 
 fn resp_ok_data(input: &[u8]) -> IResult<&[u8], ResponseResult> {
     let (rem, _) = char('A')(input)?;
-    let (rem, len) = terminated(
-        map_res(map_res(digit1, from_utf8), |input| input.parse()),
-        newline,
-    )(rem)?;
+    let (rem, len) = terminated(map_res(map_res(digit1, from_utf8), str::parse), newline)(rem)?;
     Ok((rem, Ok(Some(len))))
 }
 
@@ -51,7 +48,7 @@ fn resp_err_other(input: &[u8]) -> IResult<&[u8], ResponseResult> {
     Ok((rem, Err(ResponseError::Other(msg.to_owned()))))
 }
 
-pub fn response_status(input: &[u8]) -> IResult<&[u8], (usize, ResponseResult)> {
+pub(crate) fn response_status(input: &[u8]) -> IResult<&[u8], (usize, ResponseResult)> {
     map(
         consumed(alt((
             resp_ok_data,
@@ -64,7 +61,7 @@ pub fn response_status(input: &[u8]) -> IResult<&[u8], (usize, ResponseResult)> 
     )(input)
 }
 
-pub fn end_of_response(input: &[u8]) -> IResult<&[u8], usize> {
+pub(crate) fn end_of_response(input: &[u8]) -> IResult<&[u8], usize> {
     map(consumed(tag(EOR)), |(consumed, _): (&[u8], &[u8])| {
         consumed.len()
     })(input)
@@ -75,29 +72,30 @@ fn till_word_end(input: &[u8]) -> IResult<&[u8], &[u8]> {
 }
 
 fn take_word_strip(input: &[u8]) -> IResult<&[u8], &[u8]> {
-    let (rem, res) = till_word_end(input)?;
-    let (rem, _) = space0(rem)?;
-    Ok((rem, res))
+    let (mut remaining, result) = till_word_end(input)?;
+    (remaining, _) = space0(remaining)?;
+    Ok((remaining, result))
 }
 
-pub fn word(input: &[u8]) -> IResult<&[u8], (usize, &[u8])> {
+pub(crate) fn word(input: &[u8]) -> IResult<&[u8], (usize, &[u8])> {
     map(consumed(take_word_strip), |(consumed, word)| {
         (consumed.len(), word)
     })(input)
 }
 
-pub fn all(input: &[u8]) -> IResult<&[u8], (usize, &[u8])> {
+pub(crate) fn all(input: &[u8]) -> IResult<&[u8], (usize, &[u8])> {
     map(
         consumed(take_until(EOR)),
         |(consumed, data): (&[u8], &[u8])| (consumed.len(), data),
     )(input)
 }
 
-pub fn noop(input: &[u8]) -> IResult<&[u8], (usize, &[u8])> {
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) const fn noop(input: &[u8]) -> IResult<&[u8], (usize, &[u8])> {
     Ok((input, (0, &[])))
 }
 
-pub fn paragraph(input: &[u8]) -> IResult<&[u8], (usize, &[u8])> {
+pub(crate) fn paragraph(input: &[u8]) -> IResult<&[u8], (usize, &[u8])> {
     map(
         consumed(take_paragraph),
         |(consumed, paragraph): (&[u8], &[u8])| (consumed.len(), paragraph),
@@ -105,18 +103,18 @@ pub fn paragraph(input: &[u8]) -> IResult<&[u8], (usize, &[u8])> {
 }
 
 fn take_paragraph(input: &[u8]) -> IResult<&[u8], &[u8]> {
-    let (rem, _) = opt(newline)(input)?;
-    let (rem, res) = match take_until("\n\n")(rem) {
-        Ok((rem, res)) => {
-            let (rem, _) = newline(rem)?;
-            (rem, res)
+    let (remaining, _) = opt(newline)(input)?;
+    let (remaining, result) = match take_until("\n\n")(remaining) {
+        Ok((mut remaining, result)) => {
+            (remaining, _) = newline(remaining)?;
+            (remaining, result)
         }
-        err @ Err(_) => match take_until::<_, _, (&[u8], _)>(EOR)(rem) {
-            Ok((rem, res)) => (rem, res),
+        err @ Err(_) => match take_until::<_, _, (&[u8], _)>(EOR)(remaining) {
+            Ok((remaining, result)) => (remaining, result),
             Err(_) => return err,
         },
     };
-    Ok((rem, res))
+    Ok((remaining, result))
 }
 
 #[cfg(test)]
@@ -244,7 +242,8 @@ mod tests {
 
         #[test]
         fn eor() {
-            assert_eq!(end_of_response(EOR), Ok((b"" as &[u8], 3)))
+            let empty: &[u8] = b"";
+            assert_eq!(end_of_response(EOR), Ok((empty, 3)));
         }
 
         proptest! {
@@ -252,7 +251,7 @@ mod tests {
             fn parses_with_arbitary_trailing_input(
                 input in proptest::string::bytes_regex("\nC\n.*").unwrap(),
             ) {
-                assert_eq!(end_of_response(&input), Ok((&input[3..], 3)))
+                assert_eq!(end_of_response(&input), Ok((&input[3..], 3)));
             }
 
             #[test]
@@ -262,7 +261,7 @@ mod tests {
                 assert_eq!(
                     end_of_response(&input).finish().unwrap_err().code,
                     nom::error::ErrorKind::Tag,
-                )
+                );
             }
         }
     }

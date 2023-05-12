@@ -44,8 +44,8 @@ impl<'a> Pipeline<'a> {
         I: IntoIterator<Item = Query>,
     {
         let mut pipeline = conn.pipeline();
-        pipeline.push(initial)?;
-        let raw_self = &mut pipeline as *mut Pipeline;
+        _ = pipeline.push(initial)?;
+        let raw_self: *mut Pipeline<'_> = &mut pipeline;
         pipeline
             .pop()
             // safe to unwrap because there is exactly one query in the queue
@@ -53,6 +53,7 @@ impl<'a> Pipeline<'a> {
             .filter_map(f)
             .flatten()
             .for_each(move |query| {
+                #[allow(unsafe_code)]
                 let result = unsafe { Self::push_raw(raw_self, query) };
                 if let Err(err) = result {
                     log::warn!("error enqueing query: {}", err);
@@ -65,6 +66,11 @@ impl<'a> Pipeline<'a> {
     ///
     /// This method will block until the query is written to the underlying
     /// TCP socket.
+    ///
+    /// # Errors
+    ///
+    /// An [`io::Error`] is returned if the query cannot be written to the
+    /// underlying TCP socket.
     ///
     /// # Example
     ///
@@ -86,8 +92,11 @@ impl<'a> Pipeline<'a> {
         Ok(self)
     }
 
-    unsafe fn push_raw(pipeline: *mut Pipeline, query: Query) -> io::Result<()> {
-        (*pipeline).push(query)?;
+    #[allow(unsafe_code)]
+    unsafe fn push_raw(pipeline: *mut Pipeline<'_>, query: Query) -> io::Result<()> {
+        unsafe {
+            _ = (*pipeline).push(query)?;
+        }
         Ok(())
     }
 
@@ -124,7 +133,7 @@ impl<'a> Pipeline<'a> {
         T::Err: Error + Send + Sync + 'static,
     {
         self.pop_wrapped()
-            .map(|wrapped| wrapped.map_err(|err| err.take_inner()))
+            .map(|wrapped| wrapped.map_err(WrappingQueryError::take_inner))
     }
 
     fn pop_wrapped<'b, T>(
@@ -139,7 +148,7 @@ impl<'a> Pipeline<'a> {
             let expect = loop {
                 match parse::response_status(self.buf.data()) {
                     Ok((_, (consumed, response_result))) => {
-                        self.buf.consume(consumed);
+                        _ = self.buf.consume(consumed);
                         match response_result {
                             Ok(Some(len)) => break len,
                             Ok(None) => break 0,
@@ -276,7 +285,7 @@ impl<'a> Pipeline<'a> {
 
 impl Drop for Pipeline<'_> {
     fn drop(&mut self) {
-        self.clear();
+        _ = self.clear();
     }
 }
 
@@ -287,14 +296,14 @@ impl Extend<Query> for Pipeline<'_> {
     {
         iter.into_iter().for_each(|q| {
             if let Err(err) = self.push(q) {
-                log::error!("error enqueuing query: {}", err)
+                log::error!("error enqueuing query: {}", err);
             }
-        })
+        });
     }
 }
 
 impl fmt::Debug for Pipeline<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let max_length = 100;
         let (buf_data, truncated) = if self.buf.available_data() <= max_length {
             (self.buf.data(), "")
@@ -319,7 +328,6 @@ impl fmt::Debug for Pipeline<'_> {
 #[derive(Debug)]
 pub struct Responses<'a, 'b, T>
 where
-    'a: 'b,
     T: FromStr + fmt::Debug,
     T::Err: Error + Send + Sync + 'static,
 {
@@ -366,7 +374,7 @@ where
                         }
                         Err(err) => {
                             log::warn!("query failed: {}", err.inner());
-                            self.pipeline = Some(err.take_pipeline())
+                            self.pipeline = Some(err.take_pipeline());
                         }
                     }
                 }
@@ -387,7 +395,6 @@ where
 #[derive(Debug)]
 pub struct Response<'a, 'b, T>
 where
-    'a: 'b,
     T: FromStr + fmt::Debug,
     T::Err: Error + Send + Sync + 'static,
 {
@@ -415,7 +422,8 @@ where
     }
 
     /// The [`Query`] which this was a response to.
-    pub fn query(&self) -> &Query {
+    #[must_use]
+    pub const fn query(&self) -> &Query {
         &self.query
     }
 
@@ -427,7 +435,7 @@ where
                 } else {
                     loop {
                         if let Ok((_, consumed)) = parse::end_of_response(pipeline.buf.data()) {
-                            pipeline.buf.consume(consumed);
+                            _ = pipeline.buf.consume(consumed);
                             // TODO: this should be a real error
                             if !self.expect == self.seen + 1 {
                                 log::error!(
@@ -442,7 +450,7 @@ where
                             // TODO: check for overrun of respnse length
                             Ok((consumed, item)) => {
                                 let item_result = Ok(ResponseItem(item, self.query.clone()));
-                                pipeline.buf.consume(consumed);
+                                _ = pipeline.buf.consume(consumed);
                                 self.seen += consumed;
                                 self.pipeline = Some(pipeline);
                                 break Some(ItemOrYield::Item(item_result));
@@ -454,7 +462,7 @@ where
                             }
                             Err(QueryError::SizedItemParse(err, consumed)) => {
                                 log::error!("error parsing content from response item: {}", err);
-                                pipeline.buf.consume(consumed);
+                                _ = pipeline.buf.consume(consumed);
                                 self.seen += consumed;
                                 self.pipeline = Some(pipeline);
                                 break Some(ItemOrYield::Item(Err(*err)));
@@ -531,7 +539,7 @@ where
     T::Err: Error + Send + Sync + 'static,
 {
     /// Borrow the content of [`ResponseItem`].
-    pub fn content(&self) -> &T {
+    pub const fn content(&self) -> &T {
         self.0.content()
     }
 
@@ -541,7 +549,7 @@ where
     }
 
     /// The [`Query`] which this element was provided in response to.
-    pub fn query(&self) -> &Query {
+    pub const fn query(&self) -> &Query {
         &self.1
     }
 }
@@ -557,10 +565,11 @@ where
     T: FromStr + fmt::Debug,
     T::Err: Error + Send + Sync + 'static,
 {
-    fn content(&self) -> &T {
+    const fn content(&self) -> &T {
         &self.0
     }
 
+    #[allow(clippy::missing_const_for_fn)]
     fn into_content(self) -> T {
         self.0
     }

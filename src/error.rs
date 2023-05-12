@@ -9,7 +9,8 @@ use crate::pipeline::Pipeline;
 ///
 /// [IRRd]: https://irrd.readthedocs.io/en/stable/users/queries/#responses
 // TODO: these should contain the original query
-#[derive(Debug, PartialEq)]
+#[allow(clippy::module_name_repetitions)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ResponseError {
     /// the query was valid, but the primary key queried for did not exist.
     KeyNotFound,
@@ -21,7 +22,7 @@ pub enum ResponseError {
 }
 
 impl fmt::Display for ResponseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::KeyNotFound => write!(
                 f,
@@ -31,7 +32,7 @@ impl fmt::Display for ResponseError {
                 f,
                 "the query was valid, but there are multiple copies of the key in one database"
             ),
-            Self::Other(msg) => write!(f, "the query was invalid: {}", msg),
+            Self::Other(msg) => write!(f, "the query was invalid: {msg}"),
         }
     }
 }
@@ -45,25 +46,26 @@ pub(crate) struct WrappingQueryError<'a, 'b> {
 }
 
 impl<'a, 'b> WrappingQueryError<'a, 'b> {
-    pub fn new(pipeline: &'b mut Pipeline<'a>, inner: QueryError) -> Self {
+    pub(crate) fn new(pipeline: &'b mut Pipeline<'a>, inner: QueryError) -> Self {
         Self { pipeline, inner }
     }
 
-    pub fn inner(&self) -> &QueryError {
+    pub(crate) const fn inner(&self) -> &QueryError {
         &self.inner
     }
 
-    pub fn take_inner(self) -> QueryError {
+    #[allow(clippy::missing_const_for_fn)]
+    pub(crate) fn take_inner(self) -> QueryError {
         self.inner
     }
 
-    pub fn take_pipeline(self) -> &'b mut Pipeline<'a> {
+    pub(crate) fn take_pipeline(self) -> &'b mut Pipeline<'a> {
         self.pipeline
     }
 }
 
 impl fmt::Display for WrappingQueryError<'_, '_> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.inner().fmt(f)
     }
 }
@@ -75,6 +77,7 @@ impl Error for WrappingQueryError<'_, '_> {
 }
 
 /// Error variants returned during query execution.
+#[allow(clippy::module_name_repetitions)]
 #[derive(Debug)]
 pub enum QueryError {
     /// The server returned an error response.
@@ -111,25 +114,21 @@ impl QueryError {
     pub(crate) fn into_sized(self, size: usize) -> Self {
         match self {
             err @ Self::ItemParse(_) => Self::SizedItemParse(Box::new(err), size),
-            err => panic!(
-                "attempted to construct a `QueryError::SizedItemParse` from {:?}",
-                err
-            ),
+            err => panic!("attempted to construct a `QueryError::SizedItemParse` from {err:?}"),
         }
     }
 }
 
 impl fmt::Display for QueryError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::ResponseErr(err) => write!(f, "error response from server: {}", err),
-            Self::Io(err) => write!(f, "an IO error occurred: {}", err),
-            Self::BadLength(err) => write!(f, "failed to decode response length: {}", err),
+            Self::ResponseErr(err) => write!(f, "error response from server: {err}"),
+            Self::Io(err) => write!(f, "an IO error occurred: {err}"),
+            Self::BadLength(err) => write!(f, "failed to decode response length: {err}"),
             Self::Incomplete => write!(f, "insufficient bytes in parse buffer"),
-            Self::ParseErr => write!(f, "failed to parse response"),
-            Self::ParseFailure => write!(f, "failed to parse response"),
-            Self::ItemParse(err) => write!(f, "failed to parse response item: {}", err),
-            Self::SizedItemParse(err, _) => write!(f, "{}", err),
+            Self::ParseErr | Self::ParseFailure => write!(f, "failed to parse response"),
+            Self::ItemParse(err) => write!(f, "failed to parse response item: {err}"),
+            Self::SizedItemParse(err, _) => write!(f, "{err}"),
         }
     }
 }
@@ -148,7 +147,7 @@ impl Error for QueryError {
 }
 
 impl From<WrappingQueryError<'_, '_>> for QueryError {
-    fn from(err: WrappingQueryError) -> Self {
+    fn from(err: WrappingQueryError<'_, '_>) -> Self {
         err.inner
     }
 }
@@ -158,7 +157,7 @@ impl From<nom::Err<nom::error::Error<&[u8]>>> for QueryError {
         match err {
             nom::Err::Incomplete(_) => Self::Incomplete,
             nom::Err::Error(_) => Self::ParseErr,
-            _ => {
+            nom::Err::Failure(_) => {
                 log::debug!("parse error: {:?}", err);
                 Self::ParseFailure
             }

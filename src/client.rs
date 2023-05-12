@@ -30,6 +30,7 @@ use crate::{
 /// ```
 ///
 /// [IRRd]: https://irrd.readthedocs.io/en/stable/
+#[allow(clippy::module_name_repetitions)]
 #[derive(Debug)]
 pub struct IrrClient<A> {
     addr: A,
@@ -63,7 +64,7 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn new(addr: A) -> Self {
+    pub const fn new(addr: A) -> Self {
         Self {
             addr,
             client_id: None,
@@ -76,17 +77,21 @@ where
     ///
     /// Default if not set is [`DEFAULT_CLIENT_ID`][Self::DEFAULT_CLIENT_ID].
     pub fn client_id<S: AsRef<str>>(&mut self, id: Option<S>) {
-        self.client_id = id.map(|id| id.as_ref().to_string())
+        self.client_id = id.map(|id| id.as_ref().to_string());
     }
 
     /// Set a non-default server-side timeout.
     ///
     /// The default if not set is server configuration dependent.
     pub fn server_timeout(&mut self, duration: Option<Duration>) {
-        self.server_timeout = duration
+        self.server_timeout = duration;
     }
 
     /// Initiate a new connection to an IRRd server.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::Error`] if the TCP connection to the IRRd server cannot be established.
     pub fn connect(&self) -> io::Result<Connection> {
         Connection::connect(self)
     }
@@ -94,8 +99,7 @@ where
     fn effective_client_id(&self) -> &str {
         self.client_id
             .as_ref()
-            .map(|id| id.as_ref())
-            .unwrap_or(Self::DEFAULT_CLIENT_ID)
+            .map_or(Self::DEFAULT_CLIENT_ID, String::as_ref)
     }
 }
 
@@ -129,9 +133,9 @@ impl Connection {
         let mut this = Self { conn };
         {
             let mut init_pipeline = this.pipeline_with_capacity(8);
-            init_pipeline.push(Query::SetClientId(builder.effective_client_id().to_owned()))?;
+            _ = init_pipeline.push(Query::SetClientId(builder.effective_client_id().to_owned()))?;
             if let Some(server_timeout) = builder.server_timeout {
-                init_pipeline.push(Query::SetTimeout(server_timeout))?;
+                _ = init_pipeline.push(Query::SetTimeout(server_timeout))?;
             }
         }
         Ok(this)
@@ -146,7 +150,7 @@ impl Connection {
     /// [`DEFAULT_CAPACITY`][Self::DEFAULT_CAPACITY] bytes. The
     /// [`pipeline_with_capacity()`][Self::pipeline_with_capacity()] method
     /// can be used to specify an alternate size.
-    pub fn pipeline(&mut self) -> Pipeline {
+    pub fn pipeline(&mut self) -> Pipeline<'_> {
         self.pipeline_with_capacity(Self::DEFAULT_CAPACITY)
     }
 
@@ -168,7 +172,16 @@ impl Connection {
     /// into a temporary data structure, saving allocations.
     ///
     /// See `examples/pipelined.rs` for example usage.
-    pub fn pipeline_from_initial<T, F, I>(&mut self, initial: Query, f: F) -> QueryResult<Pipeline>
+    ///
+    /// # Errors
+    ///
+    /// A [`QueryError`] is returned if a connection error is encountered during
+    /// the processing of the `initial` query.
+    pub fn pipeline_from_initial<T, F, I>(
+        &mut self,
+        initial: Query,
+        f: F,
+    ) -> QueryResult<Pipeline<'_>>
     where
         T: FromStr + fmt::Debug,
         T::Err: Error + Send + Sync + 'static,
@@ -179,7 +192,7 @@ impl Connection {
     }
 
     /// Create a new query [`Pipeline`] with a non-default read buffer size.
-    pub fn pipeline_with_capacity(&mut self, capacity: usize) -> Pipeline {
+    pub fn pipeline_with_capacity(&mut self, capacity: usize) -> Pipeline<'_> {
         Pipeline::new(self, capacity)
     }
 
@@ -189,11 +202,11 @@ impl Connection {
             .pipeline()
             .push(Query::Version)?
             .pop::<String>()
-            .unwrap()?
+            .expect("pipeline queue should exactly one query")?
             .next()
             .unwrap()?
             .content()
-            .to_owned())
+            .clone())
     }
 
     /// Convenience function to execute a [`Query::AsSetMembers`] query in a
@@ -202,7 +215,7 @@ impl Connection {
         self.pipeline()
             .push(Query::AsSetMembers(as_set))?
             .pop()
-            .unwrap()?
+            .expect("pipeline queue should exactly one query")?
             .collect()
     }
 
@@ -212,7 +225,7 @@ impl Connection {
         self.pipeline()
             .push(Query::Ipv4Routes(autnum))?
             .pop()
-            .unwrap()?
+            .expect("pipeline queue should exactly one query")?
             .collect()
     }
 
@@ -222,7 +235,7 @@ impl Connection {
         self.pipeline()
             .push(Query::Ipv6Routes(autnum))?
             .pop()
-            .unwrap()?
+            .expect("pipeline queue should exactly one query")?
             .collect()
     }
 

@@ -10,6 +10,7 @@ use rpsl::names::{AsSet, AutNum, Mntner, RouteSet};
 use crate::{error::QueryError, parse, pipeline::ResponseContent};
 
 /// Alias for [`Result<T, error::QueryError>`].
+#[allow(clippy::module_name_repetitions)]
 pub type QueryResult<T> = Result<T, QueryError>;
 
 /// IRRd query variants.
@@ -79,28 +80,28 @@ impl Query {
     pub(crate) fn cmd(&self) -> String {
         match self {
             Self::Version => "!v\n".to_owned(),
-            Self::SetClientId(id) => format!("!n{}\n", id),
+            Self::SetClientId(id) => format!("!n{id}\n"),
             Self::SetTimeout(dur) => format!("!t{}\n", dur.as_secs()),
             Self::GetSources => "!s-lc\n".to_owned(),
             Self::SetSources(sources) => format!("!s{}\n", sources.join(",")),
             Self::UnsetSources => "!s-*\n".to_owned(),
-            Self::AsSetMembers(q) => format!("!i{}\n", q),
-            Self::AsSetMembersRecursive(q) => format!("!i{},1\n", q),
-            Self::RouteSetMembers(q) => format!("!i{}\n", q),
-            Self::RouteSetMembersRecursive(q) => format!("!i{},1\n", q),
-            Self::Ipv4Routes(q) => format!("!g{}\n", q),
-            Self::Ipv6Routes(q) => format!("!6{}\n", q),
-            Self::RpslObject(class, q) => format!("!m{},{}\n", class, q),
-            Self::MntBy(q) => format!("!o{}\n", q),
-            Self::Origins(q) => format!("!r{},o\n", q),
-            Self::RoutesExact(q) => format!("!r{}\n", q),
-            Self::RoutesLess(q) => format!("!r{},l\n", q),
-            Self::RoutesLessEqual(q) => format!("!r{},L\n", q),
-            Self::RoutesMore(q) => format!("!r{},M\n", q),
+            Self::AsSetMembers(q) => format!("!i{q}\n"),
+            Self::AsSetMembersRecursive(q) => format!("!i{q},1\n"),
+            Self::RouteSetMembers(q) => format!("!i{q}\n"),
+            Self::RouteSetMembersRecursive(q) => format!("!i{q},1\n"),
+            Self::Ipv4Routes(q) => format!("!g{q}\n"),
+            Self::Ipv6Routes(q) => format!("!6{q}\n"),
+            Self::RpslObject(class, q) => format!("!m{class},{q}\n"),
+            Self::MntBy(q) => format!("!o{q}\n"),
+            Self::Origins(q) => format!("!r{q},o\n"),
+            Self::RoutesExact(q) => format!("!r{q}\n"),
+            Self::RoutesLess(q) => format!("!r{q},l\n"),
+            Self::RoutesLessEqual(q) => format!("!r{q},L\n"),
+            Self::RoutesMore(q) => format!("!r{q},M\n"),
         }
     }
 
-    pub(crate) fn expect_data(&self) -> bool {
+    pub(crate) const fn expect_data(&self) -> bool {
         matches!(
             self,
             Self::Version
@@ -152,31 +153,44 @@ impl IntoIterator for Query {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, strum::Display)]
+/// RPSL object classes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::Display)]
 #[cfg_attr(test, derive(strum::EnumIter))]
 pub enum RpslObjectClass {
+    /// `mntner` object class.
     #[strum(to_string = "mntner")]
     Mntner,
+    /// `person` object class.
     #[strum(to_string = "person")]
     Person,
+    /// `role` object class.
     #[strum(to_string = "role")]
     Role,
+    /// `route` object class.
     #[strum(to_string = "route")]
     Route,
+    /// `route6` object class.
     #[strum(to_string = "route6")]
     Route6,
+    /// `aut-num` object class.
     #[strum(to_string = "aut-num")]
     AutNum,
+    /// `inet-rtr` object class.
     #[strum(to_string = "inet-rtr")]
     InetRtr,
+    /// `as-set` object class.
     #[strum(to_string = "as-set")]
     AsSet,
+    /// `route-set` object class.
     #[strum(to_string = "route-set")]
     RouteSet,
+    /// `filter-set` object class.
     #[strum(to_string = "filter-set")]
     FilterSet,
+    /// `rtr-set` object class.
     #[strum(to_string = "rtr-set")]
     RtrSet,
+    /// `peering-set` object class.
     #[strum(to_string = "peering-set")]
     PeeringSet,
 }
