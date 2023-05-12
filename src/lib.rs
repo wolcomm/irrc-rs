@@ -1,8 +1,7 @@
-//! This crate provides an client implementation for the [IRRd query
-//! protocol][irrd].
+//! This crate provides a client implementation of the [IRRd query protocol][irrd].
 //!
-//! The implementation provides pipelined query execution for maximal
-//! performance over a single TCP connection.
+//! The implementation provides pipelined query execution for maximal performance over a single TCP
+//! connection.
 //!
 //! # Quickstart
 //!
