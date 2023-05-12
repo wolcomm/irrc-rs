@@ -175,7 +175,7 @@ impl Connection {
     ///
     /// # Errors
     ///
-    /// A [`QueryError`] is returned if a connection error is encountered during
+    /// A [`QueryError`][crate::error::QueryError] is returned if a connection error is encountered during
     /// the processing of the `initial` query.
     pub fn pipeline_from_initial<T, F, I>(
         &mut self,
