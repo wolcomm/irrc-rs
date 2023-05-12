@@ -172,7 +172,7 @@ impl Connection {
     where
         T: FromStr + fmt::Debug,
         T::Err: Error + Send + Sync + 'static,
-        F: Fn(QueryResult<ResponseItem<T>>) -> Option<I>,
+        F: FnMut(QueryResult<ResponseItem<T>>) -> Option<I>,
         I: IntoIterator<Item = Query>,
     {
         Pipeline::from_initial(self, initial, f)

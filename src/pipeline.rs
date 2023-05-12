@@ -40,7 +40,7 @@ impl<'a> Pipeline<'a> {
         'a: 'b,
         T: FromStr + fmt::Debug,
         T::Err: Error + Send + Sync + 'static,
-        F: Fn(QueryResult<ResponseItem<T>>) -> Option<I>,
+        F: FnMut(QueryResult<ResponseItem<T>>) -> Option<I>,
         I: IntoIterator<Item = Query>,
     {
         let mut pipeline = conn.pipeline();
