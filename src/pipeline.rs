@@ -44,8 +44,7 @@ impl<'a> Pipeline<'a> {
         I: IntoIterator<Item = Query>,
     {
         let mut pipeline = conn.pipeline();
-        _ = pipeline.push(initial)?;
-        let raw_self: *mut Pipeline<'_> = &mut pipeline;
+        let raw_self: *mut Self = pipeline.push(initial)?;
         pipeline
             .pop()
             // safe to unwrap because there is exactly one query in the queue
@@ -54,7 +53,10 @@ impl<'a> Pipeline<'a> {
             .flatten()
             .for_each(move |query| {
                 #[allow(unsafe_code)]
-                let result = unsafe { Self::push_raw(raw_self, query) };
+                // SAFETY:
+                // This is safe here, as nothing is concurrently popping `self.queue`
+                // or writing to `self.conn`.
+                let result = unsafe { (*raw_self).push(query) };
                 if let Err(err) = result {
                     log::warn!("error enqueing query: {}", err);
                 }
@@ -90,14 +92,6 @@ impl<'a> Pipeline<'a> {
         self.conn.send(&query.cmd())?;
         self.queue.push_back(query);
         Ok(self)
-    }
-
-    #[allow(unsafe_code)]
-    unsafe fn push_raw(pipeline: *mut Pipeline<'_>, query: Query) -> io::Result<()> {
-        unsafe {
-            _ = (*pipeline).push(query)?;
-        }
-        Ok(())
     }
 
     /// Get the next query response from this [`Pipeline`].
