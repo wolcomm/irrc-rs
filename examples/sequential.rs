@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use ip::{Any, Prefix};
+use ip::{traits::PrefixSet as _, Any, Prefix, PrefixSet};
 use irrc::{IrrClient, Query};
 use simple_logger::SimpleLogger;
 
@@ -29,9 +29,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         .collect();
     irr.pipeline_from_iter(route_queries)
         .responses::<Prefix<Any>>()
-        .for_each(|result| match result {
-            Ok(item) => println!("{}", item.content()),
-            Err(err) => log::error!("{err}"),
-        });
+        .filter_map(|result| match result {
+            Ok(item) => Some(item.into_content()),
+            Err(err) => {
+                log::error!("{err}");
+                None
+            }
+        })
+        .collect::<PrefixSet<Any>>()
+        .ranges()
+        .for_each(|range| println!("{range}"));
     Ok(())
 }
