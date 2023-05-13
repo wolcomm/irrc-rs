@@ -1,31 +1,37 @@
-use irrc::{IrrClient, QueryResult};
+use std::error::Error;
+
+use ip::{Any, Prefix};
+use irrc::{IrrClient, Query};
 use simple_logger::SimpleLogger;
 
-fn main() -> QueryResult<()> {
+fn main() -> Result<(), Box<dyn Error>> {
     SimpleLogger::new()
         .with_level(log::LevelFilter::Info)
-        .init()
-        .unwrap();
+        .init()?;
     let mut irr = IrrClient::new("whois.radb.net:43").connect()?;
-    irr.as_set_members("AS37271:AS-CUSTOMERS".parse().unwrap())?
-        .into_iter()
-        .filter_map(|item| {
-            let autnum = match item.content().parse() {
-                Ok(autnum) => autnum,
-                Err(err) => {
-                    log::error!("failed to parse aut-num: {}", err);
-                    return None;
-                }
-            };
-            match irr.ipv4_routes(autnum) {
-                Ok(routes) => Some(routes),
-                Err(err) => {
-                    log::error!("getting ipv4 routes for {} failed: {}", autnum, err);
-                    None
-                }
+    let route_queries: Vec<_> = irr
+        .pipeline()
+        .push(Query::AsSetMembersRecursive(
+            "AS37271:AS-CUSTOMERS".parse()?,
+        ))?
+        .responses()
+        .filter_map(|result| match result {
+            Ok(item) => Some([
+                Query::Ipv4Routes(*item.content()),
+                Query::Ipv6Routes(*item.content()),
+            ]),
+            Err(err) => {
+                log::error!("{err}");
+                None
             }
         })
         .flatten()
-        .for_each(|item| println!("{}", item.content()));
+        .collect();
+    irr.pipeline_from_iter(route_queries)
+        .responses::<Prefix<Any>>()
+        .for_each(|result| match result {
+            Ok(item) => println!("{}", item.content()),
+            Err(err) => log::error!("{err}"),
+        });
     Ok(())
 }

@@ -191,6 +191,16 @@ impl Connection {
         Pipeline::from_initial(self, initial, f)
     }
 
+    /// Create a new query [`Pipeline`] from an iterator of [`Query`] items.
+    pub fn pipeline_from_iter<I>(&mut self, iter: I) -> Pipeline<'_>
+    where
+        I: IntoIterator<Item = Query>,
+    {
+        let mut pipeline = self.pipeline();
+        pipeline.extend(iter);
+        pipeline
+    }
+
     /// Create a new query [`Pipeline`] with a non-default read buffer size.
     pub fn pipeline_with_capacity(&mut self, capacity: usize) -> Pipeline<'_> {
         Pipeline::new(self, capacity)
@@ -220,36 +230,6 @@ impl Connection {
             .unwrap()?
             .content()
             .clone())
-    }
-
-    /// Convenience function to execute a [`Query::AsSetMembers`] query in a
-    /// new [`Pipeline`].
-    pub fn as_set_members(&mut self, as_set: AsSet) -> QueryResult<Vec<ResponseItem<String>>> {
-        self.pipeline()
-            .push(Query::AsSetMembers(as_set))?
-            .pop()
-            .expect("pipeline queue should exactly one query")?
-            .collect()
-    }
-
-    /// Convenience function to execute a [`Query::Ipv4Routes`] query in a
-    /// new [`Pipeline`].
-    pub fn ipv4_routes(&mut self, autnum: AutNum) -> QueryResult<Vec<ResponseItem<String>>> {
-        self.pipeline()
-            .push(Query::Ipv4Routes(autnum))?
-            .pop()
-            .expect("pipeline queue should exactly one query")?
-            .collect()
-    }
-
-    /// Convenience function to execute a [`Query::Ipv6Routes`] query in a
-    /// new [`Pipeline`].
-    pub fn ipv6_routes(&mut self, autnum: AutNum) -> QueryResult<Vec<ResponseItem<String>>> {
-        self.pipeline()
-            .push(Query::Ipv6Routes(autnum))?
-            .pop()
-            .expect("pipeline queue should exactly one query")?
-            .collect()
     }
 
     pub(crate) fn send(&mut self, query: &str) -> io::Result<()> {
