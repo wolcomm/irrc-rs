@@ -91,7 +91,7 @@ fn into_routes_queries(item: ResponseItem<AutNum>) -> [Query; 2] {
 
 fn main() -> QueryResult<()> {
     SimpleLogger::new()
-        .with_level(log::LevelFilter::Debug)
+        .with_level(log::LevelFilter::Info)
         .init()
         .unwrap();
     let args: Vec<String> = args().collect();
