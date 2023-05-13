@@ -447,7 +447,7 @@ where
                             break Some(ItemOrYield::Yield(pipeline));
                         }
                         match self.query.parse_item(pipeline.buf.data()) {
-                            // TODO: check for overrun of respnse length
+                            // TODO: check for overrun of response length
                             Ok((consumed, item)) => {
                                 let item_result = Ok(ResponseItem(item, self.query.clone()));
                                 _ = pipeline.buf.consume(consumed);

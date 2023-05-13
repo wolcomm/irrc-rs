@@ -92,9 +92,9 @@ pub enum QueryError {
     ParseErr,
     /// An unrecoverable error during parsing.
     ParseFailure,
-    /// An error occured while parsing a response item.
+    /// An error occurred while parsing a response item.
     ItemParse(Box<dyn Error + Send + Sync>),
-    /// An error occured while parsing a response item.
+    /// An error occurred while parsing a response item.
     ///
     /// This variant wraps [`ItemParse`][Self::ItemParse], including the
     /// length of the failed item.

@@ -197,6 +197,19 @@ impl Connection {
     }
 
     /// Get the server's version identification string.
+    ///
+    /// # Errors
+    ///
+    /// An error is returned if a failure occurs on the underlying TCP
+    /// connection, or if the response bytes cannot be parsed as UTF-8.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if insufficient response data is returned from the server.
+    ///
+    /// This should become a real error in a future release.
+    //
+    // TODO: don't panic when the server doesn't give us enough data.
     pub fn version(&mut self) -> QueryResult<String> {
         Ok(self
             .pipeline()
