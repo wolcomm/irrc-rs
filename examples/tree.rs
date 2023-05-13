@@ -2,11 +2,11 @@ use std::collections::HashMap;
 use std::env::args;
 
 use ip::{traits::PrefixSet as _, Any, Ipv4, Ipv6, Prefix, PrefixSet};
-use irrc::{IrrClient, Query, QueryResult};
+use irrc::{IrrClient, Query};
 use rpsl::names::AutNum;
 use simple_logger::SimpleLogger;
 
-fn main() -> QueryResult<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     SimpleLogger::new().init().unwrap();
     let args: Vec<String> = args().collect();
     let host = format!("{}:43", args[1]);

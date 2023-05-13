@@ -1,8 +1,6 @@
 use std::collections::VecDeque;
 use std::convert::TryFrom;
-use std::error::Error;
 use std::fmt;
-use std::io;
 use std::marker::PhantomData;
 use std::str::{from_utf8, FromStr};
 
@@ -10,9 +8,9 @@ use circular::Buffer;
 
 use crate::{
     client::Connection,
-    error::{QueryError, WrappingQueryError},
+    error::{self, Error},
     parse,
-    query::{Query, QueryResult},
+    query::Query,
 };
 
 /// A sequence of queries to be executed sequentially using pipelining.
@@ -35,19 +33,19 @@ impl<'a> Pipeline<'a> {
         conn: &'a mut Connection,
         initial: Query,
         f: F,
-    ) -> QueryResult<Self>
+    ) -> Result<Self, Error>
     where
         'a: 'b,
         T: FromStr + fmt::Debug,
-        T::Err: Error + Send + Sync + 'static,
-        F: FnMut(QueryResult<ResponseItem<T>>) -> Option<I>,
+        T::Err: std::error::Error + Send + Sync + 'static,
+        F: FnMut(Result<ResponseItem<T>, Error>) -> Option<I>,
         I: IntoIterator<Item = Query>,
     {
         let mut pipeline = conn.pipeline();
         let raw_self: *mut Self = pipeline.push(initial)?;
         pipeline
             .pop()
-            .unwrap_or_else(|| Err(QueryError::Dequeue))?
+            .unwrap_or_else(|| Err(Error::Dequeue))?
             .filter_map(f)
             .flatten()
             .for_each(move |query| {
@@ -71,14 +69,14 @@ impl<'a> Pipeline<'a> {
     ///
     /// # Errors
     ///
-    /// An [`io::Error`] is returned if the query cannot be written to the
+    /// An [`Error`] is returned if the query cannot be written to the
     /// underlying TCP socket.
     ///
     /// # Example
     ///
     /// ``` no_run
-    /// # use irrc::{IrrClient, QueryResult};
-    /// # fn main() -> QueryResult<()> {
+    /// # use irrc::{IrrClient, Error};
+    /// # fn main() -> Result<(), Error> {
     /// # let mut conn = IrrClient::new("whois.radb.net:43").connect()?;
     /// use irrc::Query;
     ///
@@ -88,7 +86,7 @@ impl<'a> Pipeline<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn push(&mut self, query: Query) -> io::Result<&mut Self> {
+    pub fn push(&mut self, query: Query) -> Result<&mut Self, Error> {
         self.conn.send(&query.cmd())?;
         self.queue.push_back(query);
         Ok(self)
@@ -110,8 +108,8 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ``` no_run
-    /// # use irrc::{IrrClient, Query, QueryResult};
-    /// # fn main() -> QueryResult<()> {
+    /// # use irrc::{IrrClient, Query, Error};
+    /// # fn main() -> Result<(), Error> {
     /// # let mut conn = IrrClient::new("whois.radb.net:43").connect()?;
     /// let mut pipeline = conn.pipeline();
     /// pipeline.push(Query::Version)?;
@@ -121,22 +119,22 @@ impl<'a> Pipeline<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn pop<'b, T>(&'b mut self) -> Option<QueryResult<Response<'a, 'b, T>>>
+    pub fn pop<'b, T>(&'b mut self) -> Option<Result<Response<'a, 'b, T>, Error>>
     where
         T: FromStr + fmt::Debug,
-        T::Err: Error + Send + Sync + 'static,
+        T::Err: std::error::Error + Send + Sync + 'static,
     {
         self.pop_wrapped()
-            .map(|wrapped| wrapped.map_err(WrappingQueryError::take_inner))
+            .map(|wrapped| wrapped.map_err(error::Wrapper::take_inner))
     }
 
     fn pop_wrapped<'b, T>(
         &'b mut self,
-    ) -> Option<Result<Response<'a, 'b, T>, WrappingQueryError<'a, 'b>>>
+    ) -> Option<Result<Response<'a, 'b, T>, error::Wrapper<'a, 'b>>>
     where
         'a: 'b,
         T: FromStr + fmt::Debug,
-        T::Err: Error + Send + Sync + 'static,
+        T::Err: std::error::Error + Send + Sync + 'static,
     {
         self.queue.pop_front().map(move |query| {
             let expect = loop {
@@ -146,18 +144,18 @@ impl<'a> Pipeline<'a> {
                         match response_result {
                             Ok(Some(len)) => break len,
                             Ok(None) => break 0,
-                            Err(err) => return Err(WrappingQueryError::new(self, err.into())),
+                            Err(err) => return Err(error::Wrapper::new(self, err.into())),
                         }
                     }
                     Err(nom::Err::Incomplete(_)) => {
                         if let Err(err) = self.fetch() {
-                            return Err(WrappingQueryError::new(self, err.into()));
+                            return Err(error::Wrapper::new(self, err));
                         };
                     }
                     Err(err) => {
                         log::error!("query {:?} failed: {}", query, err);
                         let inner_err = err.into();
-                        return Err(WrappingQueryError::new(self, inner_err));
+                        return Err(error::Wrapper::new(self, inner_err));
                     }
                 }
             };
@@ -194,8 +192,8 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ``` no_run
-    /// # use irrc::{IrrClient, Query, QueryResult};
-    /// # fn main() -> QueryResult<()> {
+    /// # use irrc::{IrrClient, Query, Error};
+    /// # fn main() -> Result<(), Error> {
     /// let autnum = "AS65000".parse().unwrap();
     /// IrrClient::new("whois.radb.net:43")
     ///     .connect()?
@@ -212,7 +210,7 @@ impl<'a> Pipeline<'a> {
     where
         'a: 'b,
         T: FromStr + fmt::Debug,
-        T::Err: Error + Send + Sync + 'static,
+        T::Err: std::error::Error + Send + Sync + 'static,
     {
         Responses {
             pipeline: Some(self),
@@ -220,7 +218,7 @@ impl<'a> Pipeline<'a> {
         }
     }
 
-    fn fetch(&mut self) -> io::Result<usize> {
+    fn fetch(&mut self) -> Result<usize, Error> {
         self.buf.shift();
         let space = self.buf.space();
         log::trace!("trying to fetch up to {} bytes", space.len());
@@ -253,8 +251,8 @@ impl<'a> Pipeline<'a> {
     /// # Example
     ///
     /// ``` no_run
-    /// # use irrc::{IrrClient, Query, QueryResult};
-    /// # fn main() -> QueryResult<()> {
+    /// # use irrc::{IrrClient, Query, Error};
+    /// # fn main() -> Result<(), Error> {
     /// let mut irr = IrrClient::new("whois.radb.net:43")
     ///     .connect()?;
     /// let mut pipeline = irr.pipeline();
@@ -323,7 +321,7 @@ impl fmt::Debug for Pipeline<'_> {
 pub struct Responses<'a, 'b, T>
 where
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + Sync + 'static,
+    T::Err: std::error::Error + Send + Sync + 'static,
 {
     pipeline: Option<&'b mut Pipeline<'a>>,
     current_reponse: Option<Response<'a, 'b, T>>,
@@ -332,7 +330,7 @@ where
 impl<T> Responses<'_, '_, T>
 where
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + Sync + 'static,
+    T::Err: std::error::Error + Send + Sync + 'static,
 {
     fn consume(&mut self) {
         for item in self {
@@ -345,9 +343,9 @@ impl<'a, 'b, T> Iterator for Responses<'a, 'b, T>
 where
     'a: 'b,
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + Sync + 'static,
+    T::Err: std::error::Error + Send + Sync + 'static,
 {
-    type Item = QueryResult<ResponseItem<T>>;
+    type Item = Result<ResponseItem<T>, Error>;
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if let Some(ref mut current) = self.current_reponse {
@@ -390,7 +388,7 @@ where
 pub struct Response<'a, 'b, T>
 where
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + Sync + 'static,
+    T::Err: std::error::Error + Send + Sync + 'static,
 {
     query: Query,
     pipeline: Option<&'b mut Pipeline<'a>>,
@@ -403,7 +401,7 @@ impl<'a, 'b, T> Response<'a, 'b, T>
 where
     'a: 'b,
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + Sync + 'static,
+    T::Err: std::error::Error + Send + Sync + 'static,
 {
     pub(crate) fn new(query: Query, pipeline: &'b mut Pipeline<'a>, expect: usize) -> Self {
         Self {
@@ -431,7 +429,7 @@ where
                         if let Ok((_, consumed)) = parse::end_of_response(pipeline.buf.data()) {
                             _ = pipeline.buf.consume(consumed);
                             // TODO: this should be a real error
-                            if !self.expect == self.seen + 1 {
+                            if self.expect != self.seen + 1 {
                                 log::error!(
                                     "premature end of response after {} bytes: expected {} bytes",
                                     self.seen,
@@ -449,17 +447,19 @@ where
                                 self.pipeline = Some(pipeline);
                                 break Some(ItemOrYield::Item(item_result));
                             }
-                            Err(QueryError::Incomplete | QueryError::ParseErr) => {
+                            Err(Error::Incomplete | Error::ParseErr) => {
                                 if let Err(err) = pipeline.fetch() {
-                                    break Some(ItemOrYield::Item(Err(err.into())));
+                                    break Some(ItemOrYield::Item(Err(err)));
                                 }
                             }
-                            Err(QueryError::SizedItemParse(err, consumed)) => {
+                            Err(err @ Error::ParseItem(_, _)) => {
                                 log::error!("error parsing content from response item: {}", err);
-                                _ = pipeline.buf.consume(consumed);
-                                self.seen += consumed;
+                                if let Error::ParseItem(_, consumed) = err {
+                                    _ = pipeline.buf.consume(consumed);
+                                    self.seen += consumed;
+                                }
                                 self.pipeline = Some(pipeline);
-                                break Some(ItemOrYield::Item(Err(*err)));
+                                break Some(ItemOrYield::Item(Err(err)));
                             }
                             Err(err) => {
                                 log::error!("error parsing word from buffer: {}", err);
@@ -486,7 +486,7 @@ where
 impl<T> Drop for Response<'_, '_, T>
 where
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + Sync + 'static,
+    T::Err: std::error::Error + Send + Sync + 'static,
 {
     fn drop(&mut self) {
         self.consume();
@@ -496,9 +496,9 @@ where
 impl<T> Iterator for Response<'_, '_, T>
 where
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + Sync + 'static,
+    T::Err: std::error::Error + Send + Sync + 'static,
 {
-    type Item = QueryResult<ResponseItem<T>>;
+    type Item = Result<ResponseItem<T>, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.next_or_yield() {
@@ -511,9 +511,9 @@ where
 enum ItemOrYield<'a, 'b, T>
 where
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + Sync + 'static,
+    T::Err: std::error::Error + Send + Sync + 'static,
 {
-    Item(QueryResult<ResponseItem<T>>),
+    Item(Result<ResponseItem<T>, Error>),
     Yield(&'b mut Pipeline<'a>),
 }
 
@@ -525,12 +525,12 @@ where
 pub struct ResponseItem<T>(ResponseContent<T>, Query)
 where
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + Sync + 'static;
+    T::Err: std::error::Error + Send + Sync + 'static;
 
 impl<T> ResponseItem<T>
 where
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + Sync + 'static,
+    T::Err: std::error::Error + Send + Sync + 'static,
 {
     /// Borrow the content of [`ResponseItem`].
     pub const fn content(&self) -> &T {
@@ -552,12 +552,12 @@ where
 pub(crate) struct ResponseContent<T>(T)
 where
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + Sync + 'static;
+    T::Err: std::error::Error + Send + Sync + 'static;
 
 impl<T> ResponseContent<T>
 where
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + Sync + 'static,
+    T::Err: std::error::Error + Send + Sync + 'static,
 {
     const fn content(&self) -> &T {
         &self.0
@@ -572,16 +572,11 @@ where
 impl<T> TryFrom<&[u8]> for ResponseContent<T>
 where
     T: FromStr + fmt::Debug,
-    T::Err: Error + Send + Sync + 'static,
+    T::Err: std::error::Error + Send + Sync + 'static,
 {
-    type Error = QueryError;
+    type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn try_from(buf: &[u8]) -> Result<Self, Self::Error> {
-        Ok(Self(
-            from_utf8(buf)
-                .map_err(QueryError::from_item_parse_err)?
-                .parse()
-                .map_err(QueryError::from_item_parse_err)?,
-        ))
+        Ok(Self(from_utf8(buf)?.parse()?))
     }
 }

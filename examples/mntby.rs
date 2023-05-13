@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use irrc::{IrrClient, Query, QueryResult, ResponseItem};
+use irrc::{IrrClient, Query};
 use simple_logger::SimpleLogger;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -9,8 +9,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         .connect()?
         .pipeline()
         .push(Query::MntBy("WORKONLINE-MNT".parse()?))?
-        .responses()
-        .filter_map(|item_result: QueryResult<ResponseItem<String>>| {
+        .responses::<String>()
+        .filter_map(|item_result| {
             item_result
                 .map_err(|err| log::warn!("failed to parse item: {}", err))
                 .ok()

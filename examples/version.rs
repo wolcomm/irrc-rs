@@ -1,7 +1,7 @@
-use irrc::{IrrClient, QueryResult};
+use irrc::{Error, IrrClient};
 use simple_logger::SimpleLogger;
 
-fn main() -> QueryResult<()> {
+fn main() -> Result<(), Error> {
     SimpleLogger::new()
         .with_level(log::LevelFilter::Warn)
         .init()

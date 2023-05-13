@@ -1,7 +1,7 @@
-use irrc::{IrrClient, Query, QueryResult};
+use irrc::{Error, IrrClient, Query};
 use simple_logger::SimpleLogger;
 
-fn main() -> QueryResult<()> {
+fn main() -> Result<(), Error> {
     SimpleLogger::new().init().unwrap();
     let mut irr = IrrClient::new("whois.radb.net:43").connect()?;
     let autnum = "AS37271".parse().unwrap();

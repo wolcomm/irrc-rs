@@ -1,14 +1,13 @@
-use std::error::Error;
 use std::fmt;
-use std::io::{self, Read, Write};
+use std::io::{Read, Write};
 use std::net::{Shutdown, TcpStream, ToSocketAddrs};
 use std::str::FromStr;
 use std::time::Duration;
 
 use crate::{
-    error::QueryError,
+    error::Error,
     pipeline::{Pipeline, ResponseItem},
-    query::{Query, QueryResult},
+    query::Query,
 };
 
 /// Builder for IRR query protocol connections.
@@ -18,9 +17,9 @@ use crate::{
 /// # Example
 ///
 /// ``` no_run
-/// use irrc::{IrrClient, QueryResult};
+/// use irrc::{IrrClient, Error};
 ///
-/// fn main() -> QueryResult<()> {
+/// fn main() -> Result<(), Error> {
 ///     let mut irr = IrrClient::new("whois.radb.net:43")
 ///         .connect()?;
 ///     println!("{}", irr.version()?);
@@ -90,8 +89,8 @@ where
     ///
     /// # Errors
     ///
-    /// Returns [`io::Error`] if the TCP connection to the IRRd server cannot be established.
-    pub fn connect(&self) -> io::Result<Connection> {
+    /// Returns an error if the TCP connection to the IRRd server cannot be established.
+    pub fn connect(&self) -> Result<Connection, Error> {
         Connection::connect(self)
     }
 
@@ -117,7 +116,7 @@ impl Connection {
     /// Default read buffer size allocated for new [`Pipeline`]s.
     pub const DEFAULT_CAPACITY: usize = 1 << 20;
 
-    fn connect<A>(builder: &IrrClient<A>) -> io::Result<Self>
+    fn connect<A>(builder: &IrrClient<A>) -> Result<Self, Error>
     where
         A: ToSocketAddrs + fmt::Display,
     {
@@ -174,17 +173,17 @@ impl Connection {
     ///
     /// # Errors
     ///
-    /// A [`QueryError`][crate::error::QueryError] is returned if a connection error is encountered during
+    /// An [`Error`] is returned if a connection error is encountered during
     /// the processing of the `initial` query.
     pub fn pipeline_from_initial<T, F, I>(
         &mut self,
         initial: Query,
         f: F,
-    ) -> QueryResult<Pipeline<'_>>
+    ) -> Result<Pipeline<'_>, Error>
     where
         T: FromStr + fmt::Debug,
-        T::Err: Error + Send + Sync + 'static,
-        F: FnMut(QueryResult<ResponseItem<T>>) -> Option<I>,
+        T::Err: std::error::Error + Send + Sync + 'static,
+        F: FnMut(Result<ResponseItem<T>, Error>) -> Option<I>,
         I: IntoIterator<Item = Query>,
     {
         Pipeline::from_initial(self, initial, f)
@@ -219,26 +218,26 @@ impl Connection {
     /// This should become a real error in a future release.
     //
     // TODO: don't panic when the server doesn't give us enough data.
-    pub fn version(&mut self) -> QueryResult<String> {
+    pub fn version(&mut self) -> Result<String, Error> {
         Ok(self
             .pipeline()
             .push(Query::Version)?
             .pop::<String>()
-            .unwrap_or_else(|| Err(QueryError::Dequeue))?
+            .unwrap_or_else(|| Err(Error::Dequeue))?
             .next()
             .unwrap()?
             .content()
             .clone())
     }
 
-    pub(crate) fn send(&mut self, query: &str) -> io::Result<()> {
+    pub(crate) fn send(&mut self, query: &str) -> Result<(), Error> {
         log::debug!("sending query {:?}", query);
         self.conn.write_all(query.as_bytes())?;
-        self.conn.flush()
+        self.conn.flush().map_err(Error::from)
     }
 
-    pub(crate) fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.conn.read(buf)
+    pub(crate) fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        self.conn.read(buf).map_err(Error::from)
     }
 }
 

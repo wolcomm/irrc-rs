@@ -1,5 +1,4 @@
 use std::convert::TryInto;
-use std::error::Error;
 use std::fmt;
 use std::iter::{once, Once};
 use std::str::FromStr;
@@ -7,11 +6,7 @@ use std::time::Duration;
 
 use rpsl::names::{AsSet, AutNum, Mntner, RouteSet};
 
-use crate::{error::QueryError, parse, pipeline::ResponseContent};
-
-/// Alias for [`Result<T, error::QueryError>`].
-#[allow(clippy::module_name_repetitions)]
-pub type QueryResult<T> = Result<T, QueryError>;
+use crate::{error::Error, parse, pipeline::ResponseContent};
 
 /// IRRd query variants.
 // TODO: !a, !j, maybe !J
@@ -122,10 +117,10 @@ impl Query {
         )
     }
 
-    pub(crate) fn parse_item<T>(&self, input: &[u8]) -> QueryResult<(usize, ResponseContent<T>)>
+    pub(crate) fn parse_item<T>(&self, input: &[u8]) -> Result<(usize, ResponseContent<T>), Error>
     where
         T: FromStr + fmt::Debug,
-        T::Err: Error + Send + Sync + 'static,
+        T::Err: std::error::Error + Send + Sync + 'static,
     {
         let (_, (consumed, item)) = match self {
             _ if !self.expect_data() => parse::noop(input)?,
@@ -140,7 +135,7 @@ impl Query {
         };
         let content = item
             .try_into()
-            .map_err(|err: QueryError| err.into_sized(consumed))?;
+            .map_err(|err| Error::ParseItem(err, consumed))?;
         Ok((consumed, content))
     }
 }

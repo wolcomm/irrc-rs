@@ -1,10 +1,9 @@
 use std::env::args;
-use std::error::Error;
 use std::sync::mpsc;
 use std::thread;
 
 use ip::{traits::PrefixSet as _, Any, Prefix, PrefixSet};
-use irrc::{IrrClient, Query, QueryResult, ResponseItem};
+use irrc::{Error, IrrClient, Query, ResponseItem};
 use rpsl::names::{AsSet, AutNum};
 use simple_logger::SimpleLogger;
 
@@ -53,14 +52,14 @@ impl Sender {
     }
 }
 
-struct QueryThread(thread::JoinHandle<QueryResult<()>>);
+struct QueryThread(thread::JoinHandle<Result<(), Error>>);
 
 impl QueryThread {
     fn spawn(host: String, object: AsSet, collector: &mut Collector) -> Self {
         let sender = collector
             .sender()
             .expect("failed to take collector send handle");
-        let join_handle = thread::spawn(move || -> QueryResult<()> {
+        let join_handle = thread::spawn(move || -> Result<(), Error> {
             IrrClient::new(host)
                 .connect()?
                 .pipeline_from_initial(Query::AsSetMembersRecursive(object), |item| {
@@ -74,12 +73,12 @@ impl QueryThread {
         Self(join_handle)
     }
 
-    fn join(self) -> QueryResult<()> {
+    fn join(self) -> Result<(), Error> {
         self.0.join().expect("failed to join query thread")
     }
 }
 
-fn log_warning<E: Error>(err: E) -> E {
+fn log_warning<E: std::error::Error>(err: E) -> E {
     log::warn!("failed to parse item: {}", err);
     err
 }
@@ -89,7 +88,7 @@ fn into_routes_queries(item: ResponseItem<AutNum>) -> [Query; 2] {
     [Query::Ipv4Routes(autnum), Query::Ipv6Routes(autnum)]
 }
 
-fn main() -> QueryResult<()> {
+fn main() -> Result<(), Error> {
     SimpleLogger::new()
         .with_level(log::LevelFilter::Info)
         .init()

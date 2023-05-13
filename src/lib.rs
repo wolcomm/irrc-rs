@@ -6,10 +6,10 @@
 //! # Quickstart
 //!
 //! ``` no_run
-//! use irrc::{IrrClient, Query, QueryResult};
+//! use irrc::{IrrClient, Query, Error};
 //! use rpsl::names::AutNum;
 //!
-//! fn main() -> QueryResult<()> {
+//! fn main() -> Result<(), Error> {
 //!
 //!     let mut irr = IrrClient::new("whois.radb.net:43")
 //!         .connect()?;
@@ -88,13 +88,16 @@ mod deps {
 }
 
 mod client;
+pub use self::client::{Connection, IrrClient};
+
 mod parse;
+
 mod pipeline;
+pub use self::pipeline::{Pipeline, Response, ResponseItem, Responses};
+
 mod query;
+pub use self::query::{Query, RpslObjectClass};
 
 /// Error types returned during query execution
 pub mod error;
-
-pub use client::{Connection, IrrClient};
-pub use pipeline::{Pipeline, Response, ResponseItem, Responses};
-pub use query::{Query, QueryResult, RpslObjectClass};
+pub use self::error::Error;

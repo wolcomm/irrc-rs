@@ -12,11 +12,11 @@ use nom::{
     IResult,
 };
 
-use crate::error::ResponseError;
+use crate::error;
+
+type ResponseResult = Result<Option<usize>, error::Response>;
 
 const EOR: &[u8] = b"\nC\n";
-
-type ResponseResult = Result<Option<usize>, ResponseError>;
 
 fn resp_ok_data(input: &[u8]) -> IResult<&[u8], ResponseResult> {
     let (rem, _) = char('A')(input)?;
@@ -31,12 +31,12 @@ fn resp_ok_none(input: &[u8]) -> IResult<&[u8], ResponseResult> {
 
 fn resp_err_not_found(input: &[u8]) -> IResult<&[u8], ResponseResult> {
     let (rem, _) = terminated(char('D'), newline)(input)?;
-    Ok((rem, Err(ResponseError::KeyNotFound)))
+    Ok((rem, Err(error::Response::KeyNotFound)))
 }
 
 fn resp_err_not_unique(input: &[u8]) -> IResult<&[u8], ResponseResult> {
     let (rem, _) = terminated(char('E'), newline)(input)?;
-    Ok((rem, Err(ResponseError::KeyNotUnique)))
+    Ok((rem, Err(error::Response::KeyNotUnique)))
 }
 
 fn resp_err_other(input: &[u8]) -> IResult<&[u8], ResponseResult> {
@@ -45,7 +45,7 @@ fn resp_err_other(input: &[u8]) -> IResult<&[u8], ResponseResult> {
         delimited(char(' '), take_till(is_newline), newline),
         from_utf8,
     )(rem)?;
-    Ok((rem, Err(ResponseError::Other(msg.to_owned()))))
+    Ok((rem, Err(error::Response::Other(msg.to_owned()))))
 }
 
 pub(crate) fn response_status(input: &[u8]) -> IResult<&[u8], (usize, ResponseResult)> {
@@ -216,9 +216,9 @@ mod tests {
                 ok_data_nil_length: b"A0\n" => (3, Ok(Some(0))),
                 ok_data_with_length: b"A101\n" => (5, Ok(Some(101))),
                 ok_none: b"C\n" => (2, Ok(None)),
-                err_not_found: b"D\n" => (2, Err(ResponseError::KeyNotFound)),
-                err_not_unique: b"E\n" => (2, Err(ResponseError::KeyNotUnique)),
-                err_other: b"F foo\n" => (6, Err(ResponseError::Other("foo".to_string()))),
+                err_not_found: b"D\n" => (2, Err(error::Response::KeyNotFound)),
+                err_not_unique: b"E\n" => (2, Err(error::Response::KeyNotUnique)),
+                err_other: b"F foo\n" => (6, Err(error::Response::Other("foo".to_string()))),
             }
         );
     }
