@@ -47,8 +47,7 @@ impl<'a> Pipeline<'a> {
         let raw_self: *mut Self = pipeline.push(initial)?;
         pipeline
             .pop()
-            // safe to unwrap because there is exactly one query in the queue
-            .unwrap()?
+            .unwrap_or_else(|| Err(QueryError::Dequeue))?
             .filter_map(f)
             .flatten()
             .for_each(move |query| {
@@ -57,6 +56,7 @@ impl<'a> Pipeline<'a> {
                 // This is safe here, as nothing is concurrently popping `self.queue`
                 // or writing to `self.conn`.
                 let result = unsafe { (*raw_self).push(query) };
+                // TODO: this error should be fatal
                 if let Err(err) = result {
                     log::warn!("error enqueing query: {}", err);
                 }

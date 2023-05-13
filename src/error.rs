@@ -99,6 +99,8 @@ pub enum QueryError {
     /// This variant wraps [`ItemParse`][Self::ItemParse], including the
     /// length of the failed item.
     SizedItemParse(Box<QueryError>, usize),
+    /// Failed to de-queue a query response.
+    Dequeue,
 }
 
 impl QueryError {
@@ -129,6 +131,7 @@ impl fmt::Display for QueryError {
             Self::ParseErr | Self::ParseFailure => write!(f, "failed to parse response"),
             Self::ItemParse(err) => write!(f, "failed to parse response item: {err}"),
             Self::SizedItemParse(err, _) => write!(f, "{err}"),
+            Self::Dequeue => write!(f, "failed to dequeue a query response from the pipeline"),
         }
     }
 }

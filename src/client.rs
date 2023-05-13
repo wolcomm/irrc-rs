@@ -6,6 +6,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use crate::{
+    error::QueryError,
     pipeline::{Pipeline, ResponseItem},
     query::{Query, QueryResult},
 };
@@ -223,7 +224,7 @@ impl Connection {
             .pipeline()
             .push(Query::Version)?
             .pop::<String>()
-            .expect("pipeline queue should exactly one query")?
+            .unwrap_or_else(|| Err(QueryError::Dequeue))?
             .next()
             .unwrap()?
             .content()
