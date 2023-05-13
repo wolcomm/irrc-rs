@@ -5,8 +5,6 @@ use std::net::{Shutdown, TcpStream, ToSocketAddrs};
 use std::str::FromStr;
 use std::time::Duration;
 
-use rpsl::names::{AsSet, AutNum};
-
 use crate::{
     pipeline::{Pipeline, ResponseItem},
     query::{Query, QueryResult},
