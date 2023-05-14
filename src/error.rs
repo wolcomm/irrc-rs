@@ -3,12 +3,11 @@
 use std::io;
 use std::num::ParseIntError;
 
-use crate::pipeline::Pipeline;
+use crate::{pipeline::Pipeline, query::Query};
 
 /// Error responses returned by [IRRd].
 ///
 /// [IRRd]: https://irrd.readthedocs.io/en/stable/users/queries/#responses
-// TODO: these should contain the original query
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Response {
@@ -27,27 +26,23 @@ pub enum Response {
 #[derive(Debug, thiserror::Error)]
 #[error("{inner}")]
 pub(crate) struct Wrapper<'a, 'b> {
-    pipeline: &'b mut Pipeline<'a>,
+    pipeline: Option<&'b mut Pipeline<'a>>,
     #[source]
     inner: Error,
 }
 
 impl<'a, 'b> Wrapper<'a, 'b> {
-    pub(crate) fn new(pipeline: &'b mut Pipeline<'a>, inner: Error) -> Self {
+    pub(crate) fn new(pipeline: Option<&'b mut Pipeline<'a>>, inner: Error) -> Self {
         Self { pipeline, inner }
     }
 
-    pub(crate) const fn inner(&self) -> &Error {
-        &self.inner
+    pub(crate) fn split(self) -> (Option<&'b mut Pipeline<'a>>, Error) {
+        (self.pipeline, self.inner)
     }
 
     #[allow(clippy::missing_const_for_fn)]
     pub(crate) fn take_inner(self) -> Error {
         self.inner
-    }
-
-    pub(crate) fn take_pipeline(self) -> &'b mut Pipeline<'a> {
-        self.pipeline
     }
 }
 
@@ -55,13 +50,13 @@ impl<'a, 'b> Wrapper<'a, 'b> {
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// The server returned an error response.
-    #[error("error response from server")]
-    ResponseErr(#[from] Response),
+    #[error("error response for query {0:?}: {1}")]
+    ResponseErr(Query, #[source] Response),
     /// IO errors on the underlying transport.
-    #[error("an I/O error occurred")]
+    #[error("an I/O error occurred: {0}")]
     Io(#[from] io::Error),
     /// Failure parsing the "expected length" of a response.
-    #[error("failed to decode response length")]
+    #[error("failed to decode response length: {0}")]
     BadLength(#[from] ParseIntError),
     /// The parse buffer did not contain enough data.
     #[error("insufficient bytes in parse buffer")]
@@ -73,11 +68,27 @@ pub enum Error {
     #[error("fatal parsing erroring while trying to parse response")]
     ParseFailure,
     /// An error occurred while parsing a response item.
-    #[error("failed to parse item from response data")]
+    #[error("failed to parse item from response data: {0}")]
     ParseItem(#[source] Box<dyn std::error::Error + Send + Sync>, usize),
     /// Failed to de-queue a query response.
     #[error("failed to dequeue a query response from the pipeline")]
     Dequeue,
+    /// The server indicated that data was returned for a query where none
+    /// was expected.
+    #[error("unexpected non-zero data length received for query {0:?}")]
+    UnexpectedData(Query, usize),
+    /// Attempted to extract further [`ResponseItem`]s from an already consumed [`Response`].
+    #[error("attempted to extract items after EOR was reached")]
+    ConsumedResponse,
+    /// End of response marker was received before the expected data length had been reached.
+    #[error("premature end of response after {0} bytes: expected {1} bytes")]
+    ResponseDataUnderrun(usize, usize),
+    /// Received all expected data without reaching end of response marker.
+    #[error("response data has over run the length indicated in the response preamble")]
+    ResponseDataOverrun(usize, usize),
+    /// Received a zero-length response for a [`Query`] that should always return data.
+    #[error("unexpectedly empty response received for query {0:?}")]
+    EmptyResponse(Query),
 }
 
 impl From<Wrapper<'_, '_>> for Error {

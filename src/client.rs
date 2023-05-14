@@ -209,15 +209,8 @@ impl Connection {
     /// # Errors
     ///
     /// An error is returned if a failure occurs on the underlying TCP
-    /// connection, or if the response bytes cannot be parsed as UTF-8.
-    ///
-    /// # Panics
-    ///
-    /// This method panics if insufficient response data is returned from the server.
-    ///
-    /// This should become a real error in a future release.
-    //
-    // TODO: don't panic when the server doesn't give us enough data.
+    /// connection, the response contains no data, or if the response
+    /// bytes cannot be parsed as UTF-8.
     pub fn version(&mut self) -> Result<String, Error> {
         Ok(self
             .pipeline()
@@ -225,7 +218,7 @@ impl Connection {
             .pop::<String>()
             .unwrap_or_else(|| Err(Error::Dequeue))?
             .next()
-            .unwrap()?
+            .unwrap_or_else(|| Err(Error::EmptyResponse(Query::Version)))?
             .content()
             .clone())
     }

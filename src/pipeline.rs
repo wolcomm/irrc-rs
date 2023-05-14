@@ -48,17 +48,19 @@ impl<'a> Pipeline<'a> {
             .unwrap_or_else(|| Err(Error::Dequeue))?
             .filter_map(f)
             .flatten()
-            .for_each(move |query| {
+            .try_for_each(move |query| {
                 #[allow(unsafe_code)]
                 // SAFETY:
                 // This is safe here, as nothing is concurrently popping `self.queue`
                 // or writing to `self.conn`.
                 let result = unsafe { (*raw_self).push(query) };
-                // TODO: this error should be fatal
                 if let Err(err) = result {
-                    log::warn!("error enqueing query: {}", err);
+                    log::error!("error enqueing query: {}", err);
+                    Err(err)
+                } else {
+                    Ok(())
                 }
-            });
+            })?;
         Ok(pipeline)
     }
 
@@ -144,18 +146,23 @@ impl<'a> Pipeline<'a> {
                         match response_result {
                             Ok(Some(len)) => break len,
                             Ok(None) => break 0,
-                            Err(err) => return Err(error::Wrapper::new(self, err.into())),
+                            Err(err) => {
+                                return Err(error::Wrapper::new(
+                                    Some(self),
+                                    Error::ResponseErr(query, err),
+                                ))
+                            }
                         }
                     }
                     Err(nom::Err::Incomplete(_)) => {
                         if let Err(err) = self.fetch() {
-                            return Err(error::Wrapper::new(self, err));
+                            return Err(error::Wrapper::new(Some(self), err));
                         };
                     }
                     Err(err) => {
                         log::error!("query {:?} failed: {}", query, err);
                         let inner_err = err.into();
-                        return Err(error::Wrapper::new(self, inner_err));
+                        return Err(error::Wrapper::new(Some(self), inner_err));
                     }
                 }
             };
@@ -168,8 +175,10 @@ impl<'a> Pipeline<'a> {
             } else if expect == 0 {
                 Ok(Response::new(query, self, expect))
             } else {
-                // TODO
-                panic!("unexpected data")
+                Err(error::Wrapper::new(
+                    Some(self),
+                    Error::UnexpectedData(query, expect),
+                ))
             }
         })
     }
@@ -350,12 +359,21 @@ where
         loop {
             if let Some(ref mut current) = self.current_reponse {
                 match current.next_or_yield() {
-                    Some(ItemOrYield::Item(item)) => return Some(item),
-                    Some(ItemOrYield::Yield(pipeline)) => {
+                    Ok(ItemOrYield::Item(item)) => return Some(item),
+                    Ok(ItemOrYield::Yield(pipeline)) => {
                         self.pipeline = Some(pipeline);
                         self.current_reponse = None;
                     }
-                    None => unreachable!(),
+                    Err(err) => {
+                        let (pipeline, inner_err) = err.split();
+                        log::warn!("error while extracting response item: {inner_err}");
+                        self.pipeline = pipeline;
+                        self.current_reponse = None;
+                        return Some(Err(inner_err));
+                    }
+                    Ok(ItemOrYield::Finished) => {
+                        unreachable!("current_reponse has already finished")
+                    }
                 }
             }
             if let Some(pipeline) = self.pipeline.take() {
@@ -365,8 +383,10 @@ where
                             self.current_reponse = Some(response);
                         }
                         Err(err) => {
-                            log::warn!("query failed: {}", err.inner());
-                            self.pipeline = Some(err.take_pipeline());
+                            let (pipeline, inner_err) = err.split();
+                            log::warn!("failed to de-queue query response: {inner_err}");
+                            self.pipeline = pipeline;
+                            return Some(Err(inner_err));
                         }
                     }
                 }
@@ -394,6 +414,7 @@ where
     pipeline: Option<&'b mut Pipeline<'a>>,
     expect: usize,
     seen: usize,
+    finished: bool,
     content_type: PhantomData<T>,
 }
 
@@ -409,6 +430,7 @@ where
             pipeline: Some(pipeline),
             expect,
             seen: 0,
+            finished: false,
             content_type: PhantomData,
         }
     }
@@ -419,37 +441,49 @@ where
         &self.query
     }
 
-    fn next_or_yield(&mut self) -> Option<ItemOrYield<'a, 'b, T>> {
+    fn fuse(&mut self) {
+        self.finished = true;
+    }
+
+    fn next_or_yield(&mut self) -> Result<ItemOrYield<'a, 'b, T>, error::Wrapper<'a, 'b>> {
+        if self.finished {
+            return Ok(ItemOrYield::Finished);
+        }
         if let Some(pipeline) = self.pipeline.take() {
             if self.query.expect_data() {
                 if self.expect == 0 {
-                    Some(ItemOrYield::Yield(pipeline))
+                    self.fuse();
+                    Ok(ItemOrYield::Yield(pipeline))
                 } else {
                     loop {
                         if let Ok((_, consumed)) = parse::end_of_response(pipeline.buf.data()) {
                             _ = pipeline.buf.consume(consumed);
-                            // TODO: this should be a real error
-                            if self.expect != self.seen + 1 {
-                                log::error!(
-                                    "premature end of response after {} bytes: expected {} bytes",
-                                    self.seen,
-                                    self.expect
-                                );
-                            }
-                            break Some(ItemOrYield::Yield(pipeline));
+                            self.fuse();
+                            break if self.expect == self.seen + 1 {
+                                Ok(ItemOrYield::Yield(pipeline))
+                            } else {
+                                let err = Error::ResponseDataUnderrun(self.seen, self.expect);
+                                log::error!("{err}");
+                                Err(error::Wrapper::new(Some(pipeline), err))
+                            };
+                        }
+                        if self.seen > self.expect {
+                            self.fuse();
+                            let err = Error::ResponseDataOverrun(self.seen, self.expect);
+                            log::error!("{err}");
+                            break Err(error::Wrapper::new(Some(pipeline), err));
                         }
                         match self.query.parse_item(pipeline.buf.data()) {
-                            // TODO: check for overrun of response length
                             Ok((consumed, item)) => {
                                 let item_result = Ok(ResponseItem(item, self.query.clone()));
                                 _ = pipeline.buf.consume(consumed);
                                 self.seen += consumed;
                                 self.pipeline = Some(pipeline);
-                                break Some(ItemOrYield::Item(item_result));
+                                break Ok(ItemOrYield::Item(item_result));
                             }
                             Err(Error::Incomplete | Error::ParseErr) => {
                                 if let Err(err) = pipeline.fetch() {
-                                    break Some(ItemOrYield::Item(Err(err)));
+                                    break Ok(ItemOrYield::Item(Err(err)));
                                 }
                             }
                             Err(err @ Error::ParseItem(_, _)) => {
@@ -459,20 +493,22 @@ where
                                     self.seen += consumed;
                                 }
                                 self.pipeline = Some(pipeline);
-                                break Some(ItemOrYield::Item(Err(err)));
+                                break Ok(ItemOrYield::Item(Err(err)));
                             }
                             Err(err) => {
                                 log::error!("error parsing word from buffer: {}", err);
-                                break Some(ItemOrYield::Item(Err(err)));
+                                break Ok(ItemOrYield::Item(Err(err)));
                             }
                         }
                     }
                 }
             } else {
-                Some(ItemOrYield::Yield(pipeline))
+                self.fuse();
+                Ok(ItemOrYield::Yield(pipeline))
             }
         } else {
-            None
+            self.fuse();
+            Err(error::Wrapper::new(None, Error::ConsumedResponse))
         }
     }
 
@@ -502,8 +538,9 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.next_or_yield() {
-            Some(ItemOrYield::Item(item)) => Some(item),
-            _ => None,
+            Ok(ItemOrYield::Item(item)) => Some(item),
+            Ok(ItemOrYield::Yield(_) | ItemOrYield::Finished) => None,
+            Err(err) => Some(Err(err.into())),
         }
     }
 }
@@ -515,6 +552,7 @@ where
 {
     Item(Result<ResponseItem<T>, Error>),
     Yield(&'b mut Pipeline<'a>),
+    Finished,
 }
 
 /// An individual data element contained within the query response.
