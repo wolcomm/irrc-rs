@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::convert::TryFrom;
 use std::fmt;
+use std::iter::FusedIterator;
 use std::marker::PhantomData;
 use std::str::{from_utf8, FromStr};
 
@@ -396,6 +397,13 @@ where
     }
 }
 
+impl<T> FusedIterator for Responses<'_, '_, T>
+where
+    T: FromStr + fmt::Debug,
+    T::Err: std::error::Error + Send + Sync + 'static,
+{
+}
+
 /// A successful query response.
 ///
 /// If the query returned data, this can be accessed by iteration over
@@ -541,6 +549,13 @@ where
             Err(err) => Some(Err(err.into())),
         }
     }
+}
+
+impl<T> FusedIterator for Response<'_, '_, T>
+where
+    T: FromStr + fmt::Debug,
+    T::Err: std::error::Error + Send + Sync + 'static,
+{
 }
 
 enum ItemOrYield<'a, 'b, T>
