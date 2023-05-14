@@ -77,7 +77,8 @@ pub enum Error {
     /// was expected.
     #[error("unexpected non-zero data length received for query {0:?}")]
     UnexpectedData(Query, usize),
-    /// Attempted to extract further [`ResponseItem`]s from an already consumed [`Response`].
+    /// Attempted to extract further [`ResponseItem`][crate::ResponseItem]s from an already
+    /// consumed [`Response`][crate::Response].
     #[error("attempted to extract items after EOR was reached")]
     ConsumedResponse,
     /// End of response marker was received before the expected data length had been reached.
