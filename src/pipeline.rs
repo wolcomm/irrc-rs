@@ -348,9 +348,8 @@ where
     }
 }
 
-impl<'a, 'b, T> Iterator for Responses<'a, 'b, T>
+impl<T> Iterator for Responses<'_, '_, T>
 where
-    'a: 'b,
     T: FromStr + fmt::Debug,
     T::Err: std::error::Error + Send + Sync + 'static,
 {
@@ -420,7 +419,6 @@ where
 
 impl<'a, 'b, T> Response<'a, 'b, T>
 where
-    'a: 'b,
     T: FromStr + fmt::Debug,
     T::Err: std::error::Error + Send + Sync + 'static,
 {
