@@ -1,6 +1,6 @@
 [package]
 name = "irrc"
-version = "0.1.0-rc.4"
+version = "0.1.0-rc.5"
 resolver = "2"
 edition = "2021"
 authors = ["Ben Maddison <benm@workonline.africa>"]
