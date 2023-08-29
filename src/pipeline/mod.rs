@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::convert::TryFrom;
 use std::fmt;
 use std::iter::FusedIterator;
@@ -14,19 +13,22 @@ use crate::{
     query::Query,
 };
 
+mod queue;
+use self::queue::Queue;
+
 /// A sequence of queries to be executed sequentially using pipelining.
 ///
 /// See [`Connection::pipeline()`] for details.
 pub struct Pipeline<'a> {
     conn: &'a mut Connection,
     buf: Buffer,
-    queue: VecDeque<Query>,
+    queue: Queue,
 }
 
 impl<'a> Pipeline<'a> {
     pub(crate) fn new(conn: &'a mut Connection, capacity: usize) -> Self {
         let buf = Buffer::with_capacity(capacity);
-        let queue = VecDeque::new();
+        let queue = Queue::default();
         Self { conn, buf, queue }
     }
 
@@ -90,9 +92,15 @@ impl<'a> Pipeline<'a> {
     /// # }
     /// ```
     pub fn push(&mut self, query: Query) -> Result<&mut Self, Error> {
-        self.conn.send(&query.cmd())?;
-        self.queue.push_back(query);
+        log::trace!("enqueuing query {query:?}");
+        self.queue.push(query);
+        self.flush()?;
         Ok(self)
+    }
+
+    fn flush(&mut self) -> Result<(), Error> {
+        log::trace!("trying to flush un-sent queries");
+        self.queue.flush(|query| self.conn.send(&query.cmd()))
     }
 
     /// Get the next query response from this [`Pipeline`].
@@ -139,8 +147,15 @@ impl<'a> Pipeline<'a> {
         T: FromStr + fmt::Debug,
         T::Err: std::error::Error + Send + Sync + 'static,
     {
-        self.queue.pop_front().map(move |query| {
+        match self.flush() {
+            Ok(()) => {}
+            Err(err) => return Some(Err(error::Wrapper::new(Some(self), err))),
+        };
+        log::debug!("attempting to pop response from queue");
+        self.queue.pop().map(move |query| {
+            log::debug!("popped query {query:?}");
             let expect = loop {
+                log::trace!("{:?}", self);
                 match parse::response_status(self.buf.data()) {
                     Ok((_, (consumed, response_result))) => {
                         _ = self.buf.consume(consumed);
@@ -156,6 +171,7 @@ impl<'a> Pipeline<'a> {
                         }
                     }
                     Err(nom::Err::Incomplete(_)) => {
+                        log::debug!("incomplete parse, trying to fetch more data");
                         if let Err(err) = self.fetch() {
                             return Err(error::Wrapper::new(Some(self), err));
                         };
@@ -235,7 +251,6 @@ impl<'a> Pipeline<'a> {
         let fetched = self.conn.read(space)?;
         log::trace!("fetched {} bytes", fetched);
         let filled = self.buf.fill(fetched);
-        log::trace!("{:?}", self);
         Ok(filled)
     }
 
