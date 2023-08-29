@@ -16,9 +16,10 @@ impl Collector {
     fn spawn() -> Self {
         let (tx, rx) = mpsc::channel();
         let sender = Some(tx);
+        log::debug!("starting collector thread");
         let join_handle = thread::spawn(move || {
             rx.iter()
-                .inspect(|prefix| log::debug!("adding prefix {} to prefix set", prefix))
+                .inspect(|prefix| log::trace!("adding prefix {} to prefix set", prefix))
                 .collect::<PrefixSet<Any>>()
         });
         Self {
@@ -46,6 +47,7 @@ struct Sender(mpsc::Sender<Prefix<Any>>);
 impl Sender {
     fn collect(&self, item: ResponseItem<Prefix<Any>>) {
         let prefix = item.into_content();
+        log::trace!("sending prefix {prefix} to collector");
         if let Err(err) = self.0.send(prefix) {
             log::warn!("failed to send prefix to collector: {}", err);
         }
