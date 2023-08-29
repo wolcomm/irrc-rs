@@ -191,6 +191,7 @@ pub enum RpslObjectClass {
 }
 
 #[cfg(test)]
+#[allow(clippy::ignored_unit_patterns)]
 mod tests {
     use super::*;
 
@@ -211,7 +212,7 @@ mod tests {
         impl Arbitrary for RpslObjectClass {
             type Parameters = ();
             type Strategy = Union<Just<Self>>;
-            fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+            fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
                 Union::new(Self::iter().map(Just))
             }
         }
@@ -220,7 +221,7 @@ mod tests {
             type Parameters = ();
             type Strategy = BoxedStrategy<Self>;
 
-            fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+            fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
                 prop_oneof![
                     Just(Self::Version),
                     any::<String>().prop_map(Self::SetClientId),

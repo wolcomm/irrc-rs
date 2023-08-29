@@ -118,6 +118,7 @@ fn take_paragraph(input: &[u8]) -> IResult<&[u8], &[u8]> {
 }
 
 #[cfg(test)]
+#[allow(clippy::ignored_unit_patterns)]
 mod tests {
     use nom::Finish;
     use paste::paste;
