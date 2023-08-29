@@ -191,7 +191,10 @@ pub enum RpslObjectClass {
 }
 
 #[cfg(test)]
+// TODO: remove `unknown_lints` dance when `clippy::ignored_unit_patterns` is stabilised
+#[allow(unknown_lints)]
 #[allow(clippy::ignored_unit_patterns)]
+#[warn(unknown_lints)]
 mod tests {
     use super::*;
 

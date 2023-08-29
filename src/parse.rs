@@ -118,7 +118,10 @@ fn take_paragraph(input: &[u8]) -> IResult<&[u8], &[u8]> {
 }
 
 #[cfg(test)]
+// TODO: remove `unknown_lints` dance when `clippy::ignored_unit_patterns` is stabilised
+#[allow(unknown_lints)]
 #[allow(clippy::ignored_unit_patterns)]
+#[warn(unknown_lints)]
 mod tests {
     use nom::Finish;
     use paste::paste;
