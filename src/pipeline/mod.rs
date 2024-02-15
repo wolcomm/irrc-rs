@@ -155,6 +155,7 @@ impl<'a> Pipeline<'a> {
             Ok(()) => {}
             Err(err) => return Some(Err(error::Wrapper::new(Some(self), err))),
         };
+        #[allow(clippy::cognitive_complexity)]
         self.queue.pop().map(move |query| {
             tracing::debug!(?query, "popped query");
             let expect = loop {
