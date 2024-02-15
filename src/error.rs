@@ -65,8 +65,8 @@ pub enum Error {
     #[error("failed to parse response")]
     ParseErr,
     /// An unrecoverable error during parsing.
-    #[error("fatal parsing erroring while trying to parse response")]
-    ParseFailure,
+    #[error("fatal parsing erroring while trying to parse response: {0}")]
+    ParseFailure(nom::Err<nom::error::Error<Vec<u8>>>),
     /// An error occurred while parsing a response item.
     #[error("failed to parse item from response data: {0}")]
     ParseItem(#[source] Box<dyn std::error::Error + Send + Sync>, usize),
@@ -103,10 +103,7 @@ impl From<nom::Err<nom::error::Error<&[u8]>>> for Error {
         match err {
             nom::Err::Incomplete(_) => Self::Incomplete,
             nom::Err::Error(_) => Self::ParseErr,
-            nom::Err::Failure(_) => {
-                log::debug!("parse error: {:?}", err);
-                Self::ParseFailure
-            }
+            nom::Err::Failure(_) => Self::ParseFailure(err.to_owned()),
         }
     }
 }

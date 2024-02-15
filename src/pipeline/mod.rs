@@ -26,12 +26,14 @@ pub struct Pipeline<'a> {
 }
 
 impl<'a> Pipeline<'a> {
+    #[tracing::instrument(level = "debug")]
     pub(crate) fn new(conn: &'a mut Connection, capacity: usize) -> Self {
         let buf = Buffer::with_capacity(capacity);
         let queue = Queue::default();
         Self { conn, buf, queue }
     }
 
+    #[tracing::instrument(skip(f), level = "debug")]
     pub(crate) fn from_initial<'b, T, F, I>(
         conn: &'a mut Connection,
         initial: Query,
@@ -58,7 +60,7 @@ impl<'a> Pipeline<'a> {
                 // or writing to `self.conn`.
                 let result = unsafe { (*raw_self).push(query) };
                 if let Err(err) = result {
-                    log::error!("error enqueing query: {}", err);
+                    tracing::error!("error enqueing query: {}", err);
                     Err(err)
                 } else {
                     Ok(())
@@ -91,15 +93,15 @@ impl<'a> Pipeline<'a> {
     /// # Ok(())
     /// # }
     /// ```
+    #[tracing::instrument(level = "debug")]
     pub fn push(&mut self, query: Query) -> Result<&mut Self, Error> {
-        log::trace!("enqueuing query {query:?}");
         self.queue.push(query);
         self.flush()?;
         Ok(self)
     }
 
+    #[tracing::instrument(level = "debug")]
     fn flush(&mut self) -> Result<(), Error> {
-        log::trace!("trying to flush un-sent queries");
         self.queue.flush(|query| self.conn.send(&query.cmd()))
     }
 
@@ -130,6 +132,7 @@ impl<'a> Pipeline<'a> {
     /// # Ok(())
     /// # }
     /// ```
+    #[tracing::instrument(skip(self), level = "debug")]
     pub fn pop<'b, T>(&'b mut self) -> Option<Result<Response<'a, 'b, T>, Error>>
     where
         T: FromStr + fmt::Debug,
@@ -139,6 +142,7 @@ impl<'a> Pipeline<'a> {
             .map(|wrapped| wrapped.map_err(error::Wrapper::take_inner))
     }
 
+    #[tracing::instrument(level = "trace")]
     fn pop_wrapped<'b, T>(
         &'b mut self,
     ) -> Option<Result<Response<'a, 'b, T>, error::Wrapper<'a, 'b>>>
@@ -151,11 +155,10 @@ impl<'a> Pipeline<'a> {
             Ok(()) => {}
             Err(err) => return Some(Err(error::Wrapper::new(Some(self), err))),
         };
-        log::debug!("attempting to pop response from queue");
         self.queue.pop().map(move |query| {
-            log::debug!("popped query {query:?}");
+            tracing::debug!(?query, "popped query");
             let expect = loop {
-                log::trace!("{:?}", self);
+                tracing::trace!(?self);
                 match parse::response_status(self.buf.data()) {
                     Ok((_, (consumed, response_result))) => {
                         _ = self.buf.consume(consumed);
@@ -171,13 +174,12 @@ impl<'a> Pipeline<'a> {
                         }
                     }
                     Err(nom::Err::Incomplete(_)) => {
-                        log::debug!("incomplete parse, trying to fetch more data");
+                        tracing::debug!("incomplete parse, trying to fetch more data");
                         if let Err(err) = self.fetch() {
                             return Err(error::Wrapper::new(Some(self), err));
                         };
                     }
                     Err(err) => {
-                        log::error!("query {:?} failed: {}", query, err);
                         let inner_err = err.into();
                         return Err(error::Wrapper::new(Some(self), inner_err));
                     }
@@ -185,9 +187,9 @@ impl<'a> Pipeline<'a> {
             };
             if query.expect_data() {
                 if expect == 0 {
-                    log::warn!("zero length response for query {:?}", &self);
+                    tracing::warn!("unexpected zero length response for query {query:?}");
                 }
-                log::debug!("expecting response length {} bytes", expect);
+                tracing::debug!("expecting response length {} bytes", expect);
                 Ok(Response::new(query, self, expect))
             } else if expect == 0 {
                 Ok(Response::new(query, self, expect))
@@ -232,6 +234,7 @@ impl<'a> Pipeline<'a> {
     /// # Ok(())
     /// # }
     /// ```
+    #[tracing::instrument(skip(self), level = "trace")]
     pub fn responses<'b, T>(&'b mut self) -> Responses<'a, 'b, T>
     where
         'a: 'b,
@@ -244,12 +247,13 @@ impl<'a> Pipeline<'a> {
         }
     }
 
+    #[tracing::instrument(skip(self), level = "trace")]
     fn fetch(&mut self) -> Result<usize, Error> {
         self.buf.shift();
         let space = self.buf.space();
-        log::trace!("trying to fetch up to {} bytes", space.len());
+        tracing::trace!("trying to fetch up to {} bytes", space.len());
         let fetched = self.conn.read(space)?;
-        log::trace!("fetched {} bytes", fetched);
+        tracing::trace!("fetched {} bytes", fetched);
         let filled = self.buf.fill(fetched);
         Ok(filled)
     }
@@ -287,13 +291,14 @@ impl<'a> Pipeline<'a> {
     ///     .filter_map(Result::ok)
     ///     .next()
     /// {
-    ///     println!("only care the first origin: {}", autnum.content());
+    ///     println!("only care about the first origin: {}", autnum.content());
     /// }
     /// pipeline.clear();
     /// // do more work with `pipeline`...
     /// # Ok(())
     /// # }
     /// ```
+    #[tracing::instrument(level = "debug")]
     pub fn clear(&mut self) -> &mut Self {
         self.responses::<String>().consume();
         self
@@ -307,13 +312,14 @@ impl Drop for Pipeline<'_> {
 }
 
 impl Extend<Query> for Pipeline<'_> {
+    #[tracing::instrument(skip(self, iter), level = "debug")]
     fn extend<I>(&mut self, iter: I)
     where
         I: IntoIterator<Item = Query>,
     {
         iter.into_iter().for_each(|q| {
             if let Err(err) = self.push(q) {
-                log::error!("error enqueuing query: {}", err);
+                tracing::error!("error enqueuing query: {}", err);
             }
         });
     }
@@ -357,9 +363,10 @@ where
     T: FromStr + fmt::Debug,
     T::Err: std::error::Error + Send + Sync + 'static,
 {
+    #[tracing::instrument(skip(self), level = "debug")]
     fn consume(&mut self) {
         for item in self {
-            log::debug!("consuming unused response item {:?}", item);
+            tracing::debug!(?item, "consuming unused response item");
         }
     }
 }
@@ -370,6 +377,8 @@ where
     T::Err: std::error::Error + Send + Sync + 'static,
 {
     type Item = Result<ResponseItem<T>, Error>;
+
+    #[tracing::instrument(level = "trace")]
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if let Some(ref mut current) = self.current_reponse {
@@ -381,7 +390,7 @@ where
                     }
                     Err(err) => {
                         let (pipeline, inner_err) = err.split();
-                        log::warn!("error while extracting response item: {inner_err}");
+                        tracing::warn!("error while extracting response item: {inner_err}");
                         self.pipeline = pipeline;
                         self.current_reponse = None;
                         return Some(Err(inner_err));
@@ -399,7 +408,7 @@ where
                         }
                         Err(err) => {
                             let (pipeline, inner_err) = err.split();
-                            log::warn!("failed to de-queue query response: {inner_err}");
+                            tracing::warn!("failed to de-queue query response: {inner_err}");
                             self.pipeline = pipeline;
                             return Some(Err(inner_err));
                         }
@@ -466,8 +475,10 @@ where
         self.finished = true;
     }
 
+    #[tracing::instrument(level = "trace")]
     fn next_or_yield(&mut self) -> Result<ItemOrYield<'a, 'b, T>, error::Wrapper<'a, 'b>> {
         if self.finished {
+            tracing::trace!("response fully consumed");
             return Ok(ItemOrYield::Finished);
         }
         if let Some(pipeline) = self.pipeline.take() {
@@ -484,14 +495,14 @@ where
                                 Ok(ItemOrYield::Yield(pipeline))
                             } else {
                                 let err = Error::ResponseDataUnderrun(self.seen, self.expect);
-                                log::error!("{err}");
+                                tracing::error!(%err);
                                 Err(error::Wrapper::new(Some(pipeline), err))
                             };
                         }
                         if self.seen > self.expect {
                             self.fuse();
                             let err = Error::ResponseDataOverrun(self.seen, self.expect);
-                            log::error!("{err}");
+                            tracing::error!(%err);
                             break Err(error::Wrapper::new(Some(pipeline), err));
                         }
                         match self.query.parse_item(pipeline.buf.data()) {
@@ -508,7 +519,7 @@ where
                                 }
                             }
                             Err(err @ Error::ParseItem(_, _)) => {
-                                log::error!("error parsing content from response item: {}", err);
+                                tracing::error!("error parsing content from response item: {err}");
                                 if let Error::ParseItem(_, consumed) = err {
                                     _ = pipeline.buf.consume(consumed);
                                     self.seen += consumed;
@@ -517,7 +528,7 @@ where
                                 break Ok(ItemOrYield::Item(Err(err)));
                             }
                             Err(err) => {
-                                log::error!("error parsing word from buffer: {}", err);
+                                tracing::error!("error parsing word from buffer: {err}");
                                 break Ok(ItemOrYield::Item(Err(err)));
                             }
                         }
@@ -535,7 +546,7 @@ where
 
     fn consume(&mut self) {
         for item in self {
-            log::debug!("consuming unused response item {:?}", item);
+            tracing::debug!(?item, "consuming unused response item");
         }
     }
 }

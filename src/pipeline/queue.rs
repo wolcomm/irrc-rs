@@ -26,34 +26,37 @@ impl Queue {
         self.q.len()
     }
 
+    #[tracing::instrument(level = "trace")]
     pub(crate) fn push(&mut self, query: Query) {
         self.q.push_back(query);
     }
 
+    #[tracing::instrument(skip(f), level = "trace")]
     pub(crate) fn flush<F>(&mut self, mut f: F) -> Result<(), Error>
     where
         F: FnMut(&Query) -> Result<(), Error>,
     {
-        log::trace!("{} of {} queries in-flight", self.in_flight, self.len());
+        tracing::trace!("{} of {} queries in-flight", self.in_flight, self.len());
         if self.in_flight == self.len() {
             return Ok(());
         }
         let capacity = self.max_in_flight - self.in_flight;
-        log::trace!("available capacity to flush {capacity} queries");
+        tracing::trace!("available capacity to flush {capacity} queries");
         if capacity >= self.min_batch {
             let upto = min(self.in_flight + capacity, self.len());
-            log::debug!("trying to flush {} queries", upto - self.in_flight);
+            tracing::debug!("trying to flush {} queries", upto - self.in_flight);
             self.q.range(self.in_flight..upto).try_for_each(|item| {
                 f(item)?;
                 self.in_flight += 1;
                 Ok(())
             })
         } else {
-            log::trace!("waiting for enough capacity to flush minimum query batch");
+            tracing::trace!("waiting for enough capacity to flush minimum query batch");
             Ok(())
         }
     }
 
+    #[tracing::instrument(level = "trace")]
     pub(crate) fn pop(&mut self) -> Option<Query> {
         if self.in_flight > 0 {
             // OK to unwrap here, as self.in_flight <= self.len()

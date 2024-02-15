@@ -1,8 +1,12 @@
-use irrc::{Error, IrrClient, Query};
-use simple_logger::SimpleLogger;
+use std::{error::Error, io::stderr};
 
-fn main() -> Result<(), Error> {
-    SimpleLogger::new().init().unwrap();
+use irrc::{IrrClient, Query};
+
+fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::WARN)
+        .with_writer(stderr)
+        .try_init()?;
     let mut irr = IrrClient::new("whois.radb.net:43").connect()?;
     let autnum = "AS37271".parse().unwrap();
     let mut pipeline = irr.pipeline();

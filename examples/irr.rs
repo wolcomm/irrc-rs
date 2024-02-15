@@ -1,16 +1,19 @@
 use std::{
     error::Error,
     fmt::{Debug, Display},
+    io::stderr,
     str::FromStr,
 };
 
 use ip::{Ipv4, Ipv6, Prefix};
 use irrc::{IrrClient, Query, ResponseItem};
 use rpsl::expr::AsSetMember;
-use simple_logger::SimpleLogger;
 
-fn main() -> Result<(), Box<dyn Error>> {
-    SimpleLogger::new().init()?;
+fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::WARN)
+        .with_writer(stderr)
+        .try_init()?;
     let mut irr = IrrClient::new("whois.radb.net:43").connect()?;
     irr.pipeline()
         .push(Query::AsSetMembers("AS37271:AS-CUSTOMERS".parse()?))?
@@ -35,6 +38,6 @@ where
 {
     match result {
         Ok(item) => println!("{}", item.content()),
-        Err(err) => log::error!("{err}"),
+        Err(err) => tracing::error!(%err),
     }
 }

@@ -83,7 +83,7 @@
 #[cfg(test)]
 mod deps {
     use ip as _;
-    use simple_logger as _;
+    use tracing_subscriber as _;
     use version_sync as _;
 }
 

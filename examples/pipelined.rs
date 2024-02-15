@@ -1,11 +1,8 @@
-use std::env::args;
-use std::sync::mpsc;
-use std::thread;
+use std::{env::args, io::stderr, sync::mpsc, thread};
 
 use ip::{traits::PrefixSet as _, Any, Prefix, PrefixSet};
 use irrc::{Error, IrrClient, Query, ResponseItem};
 use rpsl::names::{AsSet, AutNum};
-use simple_logger::SimpleLogger;
 
 struct Collector {
     sender: Option<mpsc::Sender<Prefix<Any>>>,
@@ -16,10 +13,10 @@ impl Collector {
     fn spawn() -> Self {
         let (tx, rx) = mpsc::channel();
         let sender = Some(tx);
-        log::debug!("starting collector thread");
+        tracing::debug!("starting collector thread");
         let join_handle = thread::spawn(move || {
             rx.iter()
-                .inspect(|prefix| log::trace!("adding prefix {} to prefix set", prefix))
+                .inspect(|prefix| tracing::trace!("adding prefix {} to prefix set", prefix))
                 .collect::<PrefixSet<Any>>()
         });
         Self {
@@ -33,10 +30,10 @@ impl Collector {
     }
 
     fn print(self) {
-        log::debug!("trying to join collector thread");
+        tracing::debug!("trying to join collector thread");
         match self.join_handle.join() {
             Ok(set) => set.ranges().for_each(|range| println!("{}", range)),
-            Err(err) => log::error!("failed to join set builder thread: {:?}", err),
+            Err(err) => tracing::error!("failed to join set builder thread: {:?}", err),
         }
     }
 }
@@ -47,9 +44,9 @@ struct Sender(mpsc::Sender<Prefix<Any>>);
 impl Sender {
     fn collect(&self, item: ResponseItem<Prefix<Any>>) {
         let prefix = item.into_content();
-        log::trace!("sending prefix {prefix} to collector");
+        tracing::trace!("sending prefix {prefix} to collector");
         if let Err(err) = self.0.send(prefix) {
-            log::warn!("failed to send prefix to collector: {}", err);
+            tracing::warn!("failed to send prefix to collector: {}", err);
         }
     }
 }
@@ -81,7 +78,7 @@ impl QueryThread {
 }
 
 fn log_warning<E: std::error::Error>(err: E) -> E {
-    log::warn!("failed to parse item: {}", err);
+    tracing::warn!("failed to parse item: {}", err);
     err
 }
 
@@ -90,11 +87,11 @@ fn into_routes_queries(item: ResponseItem<AutNum>) -> [Query; 2] {
     [Query::Ipv4Routes(autnum), Query::Ipv6Routes(autnum)]
 }
 
-fn main() -> Result<(), Error> {
-    SimpleLogger::new()
-        .with_level(log::LevelFilter::Info)
-        .init()
-        .unwrap();
+fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::WARN)
+        .with_writer(stderr)
+        .try_init()?;
     let args: Vec<String> = args().collect();
     let host = format!("{}:43", args[1]);
     let object = args[2].parse().unwrap();

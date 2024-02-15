@@ -116,18 +116,19 @@ impl Connection {
     /// Default read buffer size allocated for new [`Pipeline`]s.
     pub const DEFAULT_CAPACITY: usize = 1 << 20;
 
+    #[tracing::instrument(skip(builder), fields(%builder.addr), level = "debug")]
     fn connect<A>(builder: &IrrClient<A>) -> Result<Self, Error>
     where
         A: ToSocketAddrs + fmt::Display,
     {
-        log::info!("trying to connect to {}", builder.addr);
+        tracing::info!("trying to connect to {}", builder.addr);
         let mut conn = TcpStream::connect(&builder.addr)?;
-        log::debug!("disabling Nagle's algorithm");
+        tracing::debug!("disabling Nagle's algorithm");
         conn.set_nodelay(true)?;
-        log::debug!("requesting multiple command mode");
+        tracing::debug!("requesting multiple command mode");
         conn.write_all(b"!!\n")?;
         conn.flush()?;
-        log::info!("connected to {}", builder.addr);
+        tracing::info!("connected to {}", builder.addr);
         let mut this = Self { conn };
         {
             let mut init_pipeline = this.pipeline_with_capacity(8);
@@ -223,8 +224,9 @@ impl Connection {
             .clone())
     }
 
+    #[tracing::instrument(skip(self), level = "debug")]
     pub(crate) fn send(&mut self, query: &str) -> Result<(), Error> {
-        log::debug!("sending query {:?}", query);
+        tracing::debug!("sending query");
         self.conn.write_all(query.as_bytes())?;
         self.conn.flush().map_err(Error::from)
     }
@@ -236,12 +238,12 @@ impl Connection {
 
 impl Drop for Connection {
     fn drop(&mut self) {
-        log::info!("closing connection");
+        tracing::info!("closing connection");
         if let Err(err) = self.conn.write(b"!q\n") {
-            log::warn!("failed to send quit command: {}", err);
+            tracing::error!("failed to send quit command: {err}");
         }
         if let Err(err) = self.conn.shutdown(Shutdown::Both) {
-            log::warn!("failed to close connection: {}", err);
+            tracing::error!("failed to close connection: {err}");
         }
     }
 }

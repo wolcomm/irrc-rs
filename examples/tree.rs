@@ -1,13 +1,14 @@
-use std::collections::HashMap;
-use std::env::args;
+use std::{collections::HashMap, env::args, error::Error, io::stderr};
 
 use ip::{traits::PrefixSet as _, Any, Ipv4, Ipv6, Prefix, PrefixSet};
 use irrc::{IrrClient, Query};
 use rpsl::names::AutNum;
-use simple_logger::SimpleLogger;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    SimpleLogger::new().init().unwrap();
+fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::WARN)
+        .with_writer(stderr)
+        .try_init()?;
     let args: Vec<String> = args().collect();
     let host = format!("{}:43", args[1]);
     let object = args[2].parse().unwrap();
@@ -19,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap()?
         .filter_map(|item| {
             item.map_err(|err| {
-                log::warn!("{}", err);
+                tracing::warn!(%err);
                 err
             })
             .map(|item| {
@@ -44,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         set.extend(response.filter_map::<Prefix<Ipv4>, _>(|item_result| {
                             item_result
                                 .map(|item| item.into_content().try_into().unwrap())
-                                .map_err(|err| log::warn!("error: {}", err))
+                                .map_err(|err| tracing::warn!(%err))
                                 .ok()
                         }))
                     });
@@ -54,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         set.extend(response.filter_map::<Prefix<Ipv6>, _>(|item_result| {
                             item_result
                                 .map(|item| item.into_content().try_into().unwrap())
-                                .map_err(|err| log::warn!("error: {}", err))
+                                .map_err(|err| tracing::warn!(%err))
                                 .ok()
                         }))
                     });
@@ -62,7 +63,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 _ => unreachable!(),
             },
             Err(err) => {
-                log::warn!("query failed: {}", err);
+                tracing::warn!("query failed: {}", err);
             }
         }
     }

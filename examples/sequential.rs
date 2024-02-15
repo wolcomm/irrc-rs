@@ -2,12 +2,11 @@ use std::error::Error;
 
 use ip::{traits::PrefixSet as _, Any, Prefix, PrefixSet};
 use irrc::{IrrClient, Query};
-use simple_logger::SimpleLogger;
 
-fn main() -> Result<(), Box<dyn Error>> {
-    SimpleLogger::new()
-        .with_level(log::LevelFilter::Info)
-        .init()?;
+fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::WARN)
+        .try_init()?;
     let mut irr = IrrClient::new("whois.radb.net:43").connect()?;
     let route_queries: Vec<_> = irr
         .pipeline()
@@ -21,7 +20,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 Query::Ipv6Routes(*item.content()),
             ]),
             Err(err) => {
-                log::error!("{err}");
+                tracing::error!("{err}");
                 None
             }
         })
@@ -32,7 +31,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .filter_map(|result| match result {
             Ok(item) => Some(item.into_content()),
             Err(err) => {
-                log::error!("{err}");
+                tracing::error!("{err}");
                 None
             }
         })
