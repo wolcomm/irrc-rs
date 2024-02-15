@@ -90,6 +90,7 @@ where
     /// # Errors
     ///
     /// Returns an error if the TCP connection to the IRRd server cannot be established.
+    #[tracing::instrument(skip(self), fields(addr = %self.addr), level = "debug")]
     pub fn connect(&self) -> Result<Connection, Error> {
         Connection::connect(self)
     }
@@ -116,7 +117,6 @@ impl Connection {
     /// Default read buffer size allocated for new [`Pipeline`]s.
     pub const DEFAULT_CAPACITY: usize = 1 << 20;
 
-    #[tracing::instrument(skip(builder), fields(%builder.addr), level = "debug")]
     fn connect<A>(builder: &IrrClient<A>) -> Result<Self, Error>
     where
         A: ToSocketAddrs + fmt::Display,
@@ -201,7 +201,9 @@ impl Connection {
     }
 
     /// Create a new query [`Pipeline`] with a non-default read buffer size.
+    #[tracing::instrument(skip(self), level = "debug")]
     pub fn pipeline_with_capacity(&mut self, capacity: usize) -> Pipeline<'_> {
+        tracing::debug!("constructing new query pipeline");
         Pipeline::new(self, capacity)
     }
 

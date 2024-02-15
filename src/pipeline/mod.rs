@@ -33,7 +33,7 @@ impl<'a> Pipeline<'a> {
         Self { conn, buf, queue }
     }
 
-    #[tracing::instrument(skip(f), level = "debug")]
+    #[tracing::instrument(skip(conn, f), fields(initial = initial.cmd()), level = "debug")]
     pub(crate) fn from_initial<'b, T, F, I>(
         conn: &'a mut Connection,
         initial: Query,
@@ -93,14 +93,15 @@ impl<'a> Pipeline<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    #[tracing::instrument(level = "debug")]
+    #[tracing::instrument(skip(self), level = "debug")]
     pub fn push(&mut self, query: Query) -> Result<&mut Self, Error> {
+        tracing::debug!("pushing new query");
         self.queue.push(query);
         self.flush()?;
         Ok(self)
     }
 
-    #[tracing::instrument(level = "debug")]
+    #[tracing::instrument(level = "trace")]
     fn flush(&mut self) -> Result<(), Error> {
         self.queue.flush(|query| self.conn.send(&query.cmd()))
     }
@@ -157,7 +158,7 @@ impl<'a> Pipeline<'a> {
         };
         #[allow(clippy::cognitive_complexity)]
         self.queue.pop().map(move |query| {
-            tracing::debug!(?query, "popped query");
+            tracing::debug!(?query, "popped query response");
             let expect = loop {
                 tracing::trace!(?self);
                 match parse::response_status(self.buf.data()) {
@@ -175,7 +176,7 @@ impl<'a> Pipeline<'a> {
                         }
                     }
                     Err(nom::Err::Incomplete(_)) => {
-                        tracing::debug!("incomplete parse, trying to fetch more data");
+                        tracing::trace!("incomplete parse, trying to fetch more data");
                         if let Err(err) = self.fetch() {
                             return Err(error::Wrapper::new(Some(self), err));
                         };
@@ -193,6 +194,7 @@ impl<'a> Pipeline<'a> {
                 tracing::debug!("expecting response length {} bytes", expect);
                 Ok(Response::new(query, self, expect))
             } else if expect == 0 {
+                tracing::debug!("found expected zero-length response");
                 Ok(Response::new(query, self, expect))
             } else {
                 Err(error::Wrapper::new(
@@ -299,7 +301,7 @@ impl<'a> Pipeline<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    #[tracing::instrument(level = "debug")]
+    #[tracing::instrument(level = "trace")]
     pub fn clear(&mut self) -> &mut Self {
         self.responses::<String>().consume();
         self
@@ -409,13 +411,13 @@ where
                         }
                         Err(err) => {
                             let (pipeline, inner_err) = err.split();
-                            tracing::warn!("failed to de-queue query response: {inner_err}");
                             self.pipeline = pipeline;
                             return Some(Err(inner_err));
                         }
                     }
                 }
             } else {
+                tracing::debug!("response queue empty");
                 return None;
             }
         }
