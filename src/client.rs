@@ -117,6 +117,7 @@ impl Connection {
     /// Default read buffer size allocated for new [`Pipeline`]s.
     pub const DEFAULT_CAPACITY: usize = 1 << 20;
 
+    #[allow(clippy::cognitive_complexity)]
     fn connect<A>(builder: &IrrClient<A>) -> Result<Self, Error>
     where
         A: ToSocketAddrs + fmt::Display,
